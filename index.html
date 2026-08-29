@@ -1,0 +1,134 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>敲石工坊 · 好友监督打卡</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⛏️</text></svg>">
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+
+<!-- ===== 登录 / 注册 ===== -->
+<div id="authView" class="auth-wrap">
+  <div class="auth-card">
+    <div class="auth-logo">⛏️🪨</div>
+    <h1 class="auth-title">敲石工坊</h1>
+    <p class="auth-sub">和好友互相监督，每天一起敲石头</p>
+    <div class="auth-tabs">
+      <button id="authTabLogin" class="auth-tab active">登录</button>
+      <button id="authTabReg" class="auth-tab">注册</button>
+    </div>
+    <input id="authUser" class="auth-input" type="text" placeholder="用户名" maxlength="16" autocomplete="username">
+    <input id="authPass" class="auth-input" type="password" placeholder="密码（至少 4 位）" autocomplete="current-password">
+    <div id="authErr" class="auth-err"></div>
+    <button id="authBtn" class="btn btn-accent btn-block">登录</button>
+    <p class="auth-note">🔒 所有数据只保存在你自己的浏览器本地（localStorage），不经过任何服务器。<br>好友之间通过「配对码」实时同步，或复制「同步码」手动交换。</p>
+  </div>
+</div>
+
+<!-- ===== 主应用 ===== -->
+<div id="appView" class="app hidden">
+  <header class="topbar">
+    <div class="brand">⛏️ 敲石工坊</div>
+    <nav class="tabs">
+      <button class="tab active" data-view="today">今日安排</button>
+      <button class="tab" data-view="forge">石匠工坊</button>
+      <button class="tab" data-view="history">历史记录</button>
+    </nav>
+    <div class="userbox">
+      <span id="userName" class="username"></span>
+      <button id="logoutBtn" class="btn btn-ghost btn-sm">退出</button>
+    </div>
+  </header>
+
+  <main class="main">
+    <!-- 今日安排 -->
+    <section id="view-today" class="view">
+      <div id="pairCard" class="panel"></div>
+
+      <div class="grid-2">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>我的安排</h2>
+            <span id="todayLabel" class="muted"></span>
+          </div>
+          <div class="prog-row">
+            <div class="prog"><div id="myBar" class="prog-fill"></div></div>
+            <span id="myProgText" class="prog-text">0/0</span>
+          </div>
+          <div id="myList" class="item-list"></div>
+          <div class="add-row">
+            <input id="newItemText" class="input" type="text" placeholder="添加一项今日安排…" maxlength="60">
+            <input id="newItemTime" class="input input-time" type="time">
+            <button id="btnAdd" class="btn btn-accent">添加</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h2>好友的安排</h2>
+            <span id="buddyStatus" class="muted"></span>
+          </div>
+          <div class="prog-row">
+            <div class="prog"><div id="buddyBar" class="prog-fill prog-fill-green"></div></div>
+            <span id="buddyProgText" class="prog-text">0/0</span>
+          </div>
+          <div id="buddyList" class="item-list"></div>
+        </div>
+      </div>
+
+      <div id="checkinPanel" class="panel checkin-panel"></div>
+    </section>
+
+    <!-- 石匠工坊 -->
+    <section id="view-forge" class="view hidden">
+      <div class="stats-row">
+        <div class="stat-card stat-total"><span id="statTotal">0</span><label>共敲击（下）</label></div>
+        <div class="stat-card"><span id="statMine">0</span><label>我敲了</label></div>
+        <div class="stat-card"><span id="statBuddy">0</span><label>好友敲了</label></div>
+        <div class="stat-card"><span id="statCredit">0</span><label>我的敲击机会</label></div>
+        <div class="stat-card"><span id="statDays">0</span><label>已打卡天数</label></div>
+      </div>
+      <div class="panel forge-panel">
+        <div id="forgeScene" class="forge-scene"></div>
+        <div class="carve-row">
+          <span id="carveStage" class="carve-stage">原石</span>
+          <div class="prog carve-prog"><div id="carveBar" class="prog-fill prog-fill-amber"></div></div>
+          <span id="carveText" class="muted"></span>
+        </div>
+        <p id="forgeHint" class="forge-hint">点击桌上的石头，石匠就会敲一下</p>
+      </div>
+    </section>
+
+    <!-- 历史记录 -->
+    <section id="view-history" class="view hidden">
+      <div class="panel">
+        <div class="cal-nav">
+          <button id="calPrev" class="btn btn-ghost">◀</button>
+          <span id="calTitle" class="cal-title"></span>
+          <button id="calNext" class="btn btn-ghost">▶</button>
+        </div>
+        <div id="calGrid" class="cal-grid"></div>
+        <div id="histStats" class="hist-stats"></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- ===== 弹窗 ===== -->
+<div id="modal" class="overlay hidden">
+  <div class="modal-box">
+    <button id="modalClose" class="modal-close">✕</button>
+    <h3 id="modalTitle"></h3>
+    <div id="modalBody"></div>
+  </div>
+</div>
+
+<div id="toasts" class="toasts"></div>
+<div id="confettiLayer"></div>
+
+<script src="./forge.js"></script>
+<script src="./app.js"></script>
+</body>
+</html>
