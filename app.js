@@ -59,6 +59,7 @@
       strikesUpdatedAt: Date.now(),
       credit: 0,
       buddy: null,
+      syncStat: { ok: 0, fail: 0, lastOk: 0, lastFail: 0, log: [] },
     };
   }
 
@@ -71,7 +72,13 @@
         for (const k in s.completions) {
           s.completions[k] = (s.completions[k] || []).filter((id) => ids.has(id));
         }
-        s.schedule = (s.schedule || []).map((i) => ({ id: String(i.id), text: String(i.text || ''), time: String(i.time || '') }));
+        s.schedule = (s.schedule || []).map((i) => ({
+          id: String(i.id), text: String(i.text || ''), time: String(i.time || ''),
+          dueAt: Number(i.dueAt) || 0, missed: !!i.missed
+        }));
+        if (!s.syncStat || typeof s.syncStat.ok !== 'number') {
+          s.syncStat = { ok: 0, fail: 0, lastOk: 0, lastFail: 0, log: [] };
+        }
         return s;
       }
     } catch (e) { }
@@ -106,11 +113,16 @@
   let heartbeatTimer = null;
   let pushTimer = null;
   let libLoading = false;
-  let syncDownNotified = false;
   let peerWatchdog = null;
+  let syncLoopTimer = null; // 周期同步（每 5 秒一次）
+  let cdTickTimer = null;   // 限时倒计时秒级刷新
   // 轻量诊断日志（供 __smDebug 排查连接问题）
   let dbgLog = [];
   function dbgPush(x) { dbgLog.push(x); if (dbgLog.length > 12) dbgLog.shift(); }
+  // 手动直连相关状态（不依赖 0.peerjs.com 中转服务器）
+  let manualPc = null;      // 手动直连的 RTCPeerConnection
+  let manualActive = false; // 手动建连进行中/已建立，此时暂停云端自动重试避免互相干扰
+  let manualTimer = null;
 
   /* ---------- 提示 / 弹窗 ---------- */
   function toast(msg, ms) {
@@ -193,6 +205,8 @@
   function logout() {
     destroyPeer();
     clearInterval(heartbeatTimer);
+    clearInterval(syncLoopTimer);
+    clearInterval(cdTickTimer);
     clearTimeout(reconnectTimer);
     state = null;
     localStorage.removeItem(SESSION_KEY);
@@ -231,7 +245,10 @@
     }
     b.username = d.u;
     if (!b.scheduleUpdatedAt || d.su >= b.scheduleUpdatedAt) {
-      b.schedule = (d.s || []).map((i) => ({ id: String(i.id), text: String(i.text || ''), time: String(i.time || '') }));
+      b.schedule = (d.s || []).map((i) => ({
+        id: String(i.id), text: String(i.text || ''), time: String(i.time || ''),
+        dueAt: Number(i.dueAt) || 0, missed: !!i.missed
+      }));
       b.scheduleUpdatedAt = d.su;
     }
     if (!b.completionsUpdatedAt || d.cu >= b.completionsUpdatedAt) {
@@ -292,6 +309,7 @@
     clearTimeout(reconnectTimer);
     clearTimeout(peerWatchdog);
     peerWatchdog = null;
+    manualAbort();
     try { if (currentConn) currentConn.close(); } catch (e) { }
     try { if (peer) peer.destroy(); } catch (e) { }
     currentConn = null;
@@ -309,15 +327,32 @@
   function schedulePush() {
     clearTimeout(pushTimer);
     pushTimer = setTimeout(() => {
-      if (connOpen) send({ t: 'snap', d: buildSnap() });
+      if (connOpen) { send({ t: 'snap', d: buildSnap() }); syncRecord(true, '进度已同步'); }
     }, 400);
   }
 
-  // 同步服务器连不上/长时间无响应：同一会话只提示一次，随后静默自动重试
-  function noteCloudDown() {
-    if (syncDownNotified) return;
-    syncDownNotified = true;
-    toast('实时同步暂时连不上（无法连接同步服务器），会自动重试；也可先用「同步码」手动同步', 3200);
+  /* ---------- 同步记录（右上角「同步记录」可查看） ----------
+     每次同步尝试的结果都会记录并持久化；失败一律不弹提示（弹窗已去掉），
+     静默自动重试。成功/失败的去重与展示见 openSyncStatModal。 */
+  function syncRecord(ok, why) {
+    if (!state || !state.buddy || !state.buddy.pairCode) return; // 未配对不记录
+    const t = Date.now();
+    if (!state.syncStat || typeof state.syncStat.ok !== 'number') {
+      state.syncStat = { ok: 0, fail: 0, lastOk: 0, lastFail: 0, log: [] };
+    }
+    const st = state.syncStat;
+    if (ok) {
+      st.ok++;
+      st.lastOk = t;
+    } else {
+      // 同一次失败的连续事件（如 error+close）只记一次
+      if (st.lastFail && t - st.lastFail < 2500) return;
+      st.fail++;
+      st.lastFail = t;
+    }
+    st.log.push({ t: t, ok: ok, w: why || (ok ? '成功' : '失败') });
+    if (st.log.length > 30) st.log.shift();
+    saveState();
   }
 
   function scheduleReconnect(delayMs) {
@@ -330,14 +365,14 @@
         // 兜底：重试入口自身异常也绝不让循环中断
         if (state && state.buddy && state.buddy.pairCode && !connOpen) scheduleReconnect(15000);
       }
-    }, delayMs || 10000);
+    }, delayMs || 5000);
   }
 
   // 重试入口：加入方的 Peer 还活着就直接重新拨号；
   // 创建方只要保持在线监听，好友上线后会自动拨号过来。
   function retryConnect() {
     if (!state || !state.buddy || !state.buddy.pairCode) return;
-    if (connOpen) return;
+    if (connOpen || manualActive) return;
     const code = state.buddy.pairCode;
     const role = state.buddy.role === 'host' ? 'host' : 'join';
     if (role === 'host') {
@@ -363,6 +398,7 @@
     let connTimer = setTimeout(() => {
       if (!state) return;
       if (conn !== currentConn || conn.open) return;
+      syncRecord(false, '连接建立超时');
       try { conn.close(); } catch (e) { }
       connOpen = false; currentConn = null; connecting = false;
       renderPair();
@@ -373,9 +409,11 @@
     conn.on('open', () => {
       dbgPush('conn-open');
       clearConnTimer();
+      clearTimeout(peerWatchdog);
+      peerWatchdog = null;
       connOpen = true;
       connecting = false;
-      syncDownNotified = false;
+      syncRecord(true, '连接成功');
       if (!state.buddy) state.buddy = { username: '' };
       const isNewConn = !state.buddy.lastSeen || (Date.now() - state.buddy.lastSeen) > 60000;
       state.buddy.pairCode = code;
@@ -395,6 +433,7 @@
       if (!state) return;
       if (currentConn === conn) {
         connOpen = false; currentConn = null; connecting = false; renderPair();
+        syncRecord(false, '连接已断开');
         // 只有加入方需要主动重拨；创建方保持监听即可，好友会自动拨过来
         if (role === 'join') scheduleReconnect();
       }
@@ -406,6 +445,7 @@
       // 好友不在线时拨号会报 peer-unavailable，属正常情况，稍后自动重试
       if (currentConn === conn) {
         connOpen = false; currentConn = null; connecting = false; renderPair();
+        syncRecord(false, (err && err.type === 'peer-unavailable') ? '好友不在线' : '连接失败');
         if (role === 'join') scheduleReconnect(5000);
       }
     });
@@ -454,7 +494,7 @@
   function syncPair(opts) {
     opts = opts || {};
     if (!state || !state.buddy || !state.buddy.pairCode) return;
-    if (connOpen) return;
+    if (connOpen || manualActive) return;
     const code = state.buddy.pairCode;
     const role = state.buddy.role === 'host' ? 'host' : 'join';
     clearTimeout(peerWatchdog);
@@ -463,15 +503,14 @@
     peerWatchdog = setTimeout(() => {
       connecting = false;
       if (!window.Peer) {
-        noteCloudDown();
-        scheduleReconnect(10000);
+        syncRecord(false, '连不上同步服务器');
+        scheduleReconnect(5000);
       }
     }, 15000);
     loadPeerLib((ok) => {
       if (!ok) {
         if (!state || !state.buddy) return;
-        if (!opts.silent) toast('实时同步不可用（无法加载同步库），可用「同步码」手动同步');
-        noteCloudDown();
+        syncRecord(false, '无法加载同步库');
         scheduleReconnect(30000);
         return;
       }
@@ -488,12 +527,15 @@
           dbgPush('wd');
           connecting = false;
           if (peer === p) { try { p.destroy(); } catch (e) { } peer = null; }
-          noteCloudDown();
-          scheduleReconnect(8000);
+          syncRecord(false, '连接同步服务器超时');
+          scheduleReconnect(5000);
         }, 12000);
         p.on('open', () => {
           dbgPush('popen:' + role);
           connecting = false;
+          // 看门狗只管"Peer 卡在打开"这一阶段，已上线即取消，避免误杀健康连接
+          clearTimeout(peerWatchdog);
+          peerWatchdog = null;
           // 创建方只监听，等好友拨号过来；加入方此时拨号连好友
           if (role === 'join') dialBuddy(p, code, role);
         });
@@ -504,7 +546,7 @@
         p.on('disconnected', () => {
           connecting = false;
           if (peer === p) { try { p.destroy(); } catch (e) { } peer = null; }
-          noteCloudDown();
+          syncRecord(false, '与同步服务器断开');
           scheduleReconnect(5000);
         });
         p.on('error', (err) => {
@@ -516,14 +558,15 @@
             if (peer === p) { try { p.destroy(); } catch (e) { } peer = null; }
             scheduleReconnect();
           } else if (et === 'peer-unavailable') {
-            // 好友不在线：加入方稍后自动重拨
+            // 好友不在线：记一次失败（静默不提示），稍后自动重拨
+            syncRecord(false, '好友不在线');
             scheduleReconnect();
           } else if (et === 'network' || et === 'server-error' || et === 'socket-error' || et === 'socket-closed') {
             if (peer === p) { try { p.destroy(); } catch (e) { } peer = null; }
-            noteCloudDown();
+            syncRecord(false, '网络错误');
             scheduleReconnect();
           } else if (et === 'browser-incompatible') {
-            noteCloudDown();
+            syncRecord(false, '浏览器不支持实时同步');
           }
         });
       } catch (e) {
@@ -536,7 +579,7 @@
   }
 
   function dialBuddy(p, code, role, opts) {
-    if (!state || !state.buddy || connOpen || !p || p.destroyed) return;
+    if (manualActive || !state || !state.buddy || connOpen || !p || p.destroyed) return;
     dbgPush('dial');
     const conn = p.connect(buddyPeerId(code, role), { reliable: true });
     setupConn(conn, code, role, opts);
@@ -550,6 +593,51 @@
   }
 
   /* ---------- 今日安排 ---------- */
+  function fmtCd(ms) {
+    if (ms < 0) ms = 0;
+    const sec = Math.floor(ms / 1000);
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s = sec % 60;
+    const p = (n) => String(n).padStart(2, '0');
+    return h > 0 ? h + ':' + p(m) + ':' + p(s) : p(m) + ':' + p(s);
+  }
+  // 每秒刷新倒计时数字，并自动把到点仍未完成的任务标记为「超时未完成」
+  function tickCountdowns() {
+    if (!state) return;
+    const t = Date.now();
+    const doneSet = new Set(state.completions[todayStr()] || []);
+    let changed = false;
+    state.schedule.forEach((it) => {
+      if (it.dueAt && !it.missed && !doneSet.has(it.id) && t >= it.dueAt) { it.missed = true; changed = true; }
+    });
+    if (changed) {
+      state.scheduleUpdatedAt = Date.now();
+      saveState();
+      schedulePush();
+      renderAll();
+      return;
+    }
+    const refresh = (scope, items) => {
+      if (!scope) return;
+      scope.querySelectorAll('[data-cd]').forEach((el) => {
+        const it = (items || []).find((x) => x.id === el.dataset.cd);
+        if (!it || !it.dueAt) return;
+        const left = it.dueAt - Date.now();
+        if (left <= 0) {
+          // 好友端展示用本地判断；本人这边会在上面分支先标记 missed 并重渲染
+          const item = el.closest('.item');
+          if (item) item.classList.add('miss');
+          const due = el.closest('.item-due');
+          if (due) { due.classList.add('miss'); due.textContent = '超时未完成'; }
+          return;
+        }
+        el.textContent = fmtCd(left);
+      });
+    };
+    refresh($('myList'), state.schedule);
+    refresh($('buddyList'), state.buddy ? (state.buddy.schedule || []) : []);
+  }
   function renderMySchedule() {
     const t = todayStr();
     const done = new Set((state.completions[t] || []));
@@ -558,10 +646,11 @@
       list.innerHTML = '<div class="item-empty">还没有安排，先添加一项吧 📝</div>';
     } else {
       list.innerHTML = state.schedule.map((it) => `
-        <div class="item ${done.has(it.id) ? 'done' : ''}">
-          <button class="item-check ${done.has(it.id) ? 'on' : ''}" data-id="${it.id}">✓</button>
-          <input class="item-text" value="${escapeHtml(it.text)}" data-id="${it.id}" maxlength="60">
+        <div class="item ${done.has(it.id) ? 'done' : ''} ${(!done.has(it.id) && it.missed) ? 'miss' : ''}">
+          <button class="item-check ${done.has(it.id) ? 'on' : ''} ${(!done.has(it.id) && it.missed) ? 'locked' : ''}" data-id="${it.id}">✓</button>
+          <input class="item-text" value="${escapeHtml(it.text)}" data-id="${it.id}" maxlength="60" ${it.missed ? 'readonly' : ''}>
           ${it.time ? `<span class="item-time">${escapeHtml(it.time)}</span>` : ''}
+          ${(!done.has(it.id) && it.dueAt) ? `<span class="item-due ${it.missed ? 'miss' : ''}">${it.missed ? '⏰ 超时未完成' : '⏳ 剩 <b data-cd="' + it.id + '">' + fmtCd(it.dueAt - Date.now()) + '</b>'}</span>` : ''}
           <button class="item-edit" data-id="${it.id}" title="编辑">✏️</button>
           <button class="item-del" data-id="${it.id}" title="删除">✕</button>
         </div>`).join('');
@@ -596,10 +685,12 @@
     const text = $('newItemText').value.trim();
     if (!text) { $('newItemText').focus(); return; }
     const time = $('newItemTime').value;
-    state.schedule.push({ id: uid(), text: text, time: time || '' });
+    const dueMin = Number($('newItemDue').value) || 0;
+    state.schedule.push({ id: uid(), text: text, time: time || '', dueAt: dueMin > 0 ? Date.now() + dueMin * 60000 : 0, missed: false });
     state.scheduleUpdatedAt = Date.now();
     $('newItemText').value = '';
     $('newItemTime').value = '';
+    $('newItemDue').value = '0';
     saveState();
     schedulePush();
     renderMySchedule();
@@ -622,7 +713,7 @@
 
   function renameItem(id, text) {
     const it = state.schedule.find((i) => i.id === id);
-    if (!it || it.text === text) return;
+    if (!it || it.missed || it.text === text) return;
     it.text = text;
     state.scheduleUpdatedAt = Date.now();
     saveState();
@@ -630,6 +721,8 @@
   }
 
   function toggleItem(id) {
+    const itm = state.schedule.find((i) => i.id === id);
+    if (itm && itm.missed) { toast('⏰ 该任务已超时，算未完成，不能勾选'); return; }
     const t = todayStr();
     if (!state.completions[t]) state.completions[t] = [];
     const arr = state.completions[t];
@@ -662,12 +755,18 @@
     }
     const t = todayStr();
     const done = new Set((b.completions && b.completions[t]) || []);
-    list.innerHTML = b.schedule.map((it) => `
-      <div class="item ${done.has(it.id) ? 'done' : ''}">
+    const nowT = Date.now();
+    list.innerHTML = b.schedule.map((it) => {
+      const budMissed = it.missed || (it.dueAt && nowT >= it.dueAt && !done.has(it.id));
+      const budDue = !done.has(it.id) && it.dueAt;
+      return `
+      <div class="item ${done.has(it.id) ? 'done' : ''} ${budDue && budMissed ? 'miss' : ''}">
         <span class="item-check ${done.has(it.id) ? 'on' : ''}">✓</span>
         <span class="item-text">${escapeHtml(it.text)}</span>
         ${it.time ? `<span class="item-time">${escapeHtml(it.time)}</span>` : ''}
-      </div>`).join('');
+        ${budDue ? `<span class="item-due ${budMissed ? 'miss' : ''}">${budMissed ? '⏰ 超时未完成' : '⏳ 剩 <b data-cd="' + it.id + '">' + fmtCd(it.dueAt - nowT) + '</b>'}</span>` : ''}
+      </div>`;
+    }).join('');
     const total = b.schedule.length;
     const cnt = b.schedule.filter((it) => done.has(it.id)).length;
     $('buddyBar').style.width = (cnt / total * 100).toFixed(1) + '%';
@@ -685,6 +784,7 @@
     const myDoneSet = new Set(state.completions[t] || []);
     const myDone = state.schedule.length > 0 && [...myIds].every((id) => myDoneSet.has(id));
     const myLeft = state.schedule.filter((i) => !myDoneSet.has(i.id)).length;
+    const myMissed = state.schedule.filter((i) => i.missed && !myDoneSet.has(i.id)).length;
     const b = state.buddy;
     const bSched = b ? (b.schedule || []) : [];
     const bIds = b ? new Set(bSched.map((i) => i.id)) : new Set();
@@ -693,7 +793,7 @@
     const bLeft = bSched.filter((i) => !bDoneSet.has(i.id)).length;
     // 刚配对还没同步过时不提示数据过期
     const bStale = !!b && !!b.lastSeen && (Date.now() - b.lastSeen > 12 * 3600 * 1000);
-    return { t, done, myDone, bDone, hasBuddy: !!b, myLeft, bLeft, bStale };
+    return { t, done, myDone, bDone, hasBuddy: !!b, myLeft, bLeft, bStale, myMissed };
   }
 
   function renderCheckin() {
@@ -709,7 +809,7 @@
       let enabled = false;
       if (!cs.hasBuddy) status = '先和好友配对，才能一起打卡（双方都完成全部安排后，今天才能打卡）';
       else if (!cs.myDone && !cs.bDone) status = '你和好友都还有未完成的安排，继续加油 💪';
-      else if (!cs.myDone) status = '你还差 ' + cs.myLeft + ' 项安排未完成';
+      else if (!cs.myDone) status = '你还差 ' + cs.myLeft + ' 项安排未完成' + (cs.myMissed ? '（含 ' + cs.myMissed + ' 项已超时，需删除）' : '');
       else if (!cs.bDone) status = '好友还差 ' + cs.bLeft + ' 项安排未完成，等 TA 完成吧…';
       else { status = '你和好友都完成了今日安排！'; enabled = true; }
       if (cs.bStale) status += '<div class="muted" style="margin-top:6px">⚠️ 好友数据可能不是最新，建议让 TA 导出同步码发给你</div>';
@@ -800,6 +900,37 @@
     $('calNext').disabled = calOffset >= 0;
   }
 
+  /* ---------- 同步记录弹窗 ---------- */
+  function fmtClock(ts) {
+    if (!ts) return '从未';
+    const d = new Date(ts);
+    const p = (n) => String(n).padStart(2, '0');
+    return (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+  }
+  function openSyncStatModal() {
+    const st = state.syncStat || { ok: 0, fail: 0, lastOk: 0, lastFail: 0, log: [] };
+    const p = (n) => String(n).padStart(2, '0');
+    const lines = st.log.map((e) => {
+      const d = new Date(e.t);
+      return '<div class="sync-line ' + (e.ok ? 'ok' : 'bad') + '">' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds())
+        + '  ' + (e.ok ? '✓ 成功' : '✗ 失败') + (e.w ? ' · ' + escapeHtml(e.w) : '') + '</div>';
+    }).join('') || '<div class="muted" style="text-align:center;padding:8px 0">还没有同步记录</div>';
+    openModal('同步记录', `
+      <p class="muted">实时同步结果记录（同步失败不会弹提示，会自动重试）：</p>
+      <div class="sync-counts">
+        <div class="sync-num ok"><b>${st.ok}</b><span>同步成功（次）</span></div>
+        <div class="sync-num bad"><b>${st.fail}</b><span>同步失败（次）</span></div>
+      </div>
+      <div class="muted" style="margin-top:10px">上次成功：${fmtClock(st.lastOk)} · 上次失败：${fmtClock(st.lastFail)}</div>
+      <div class="sync-list">${lines}</div>
+      <div class="modal-row"><button id="btnSyncReset" class="btn btn-ghost btn-sm">清零记录</button></div>`);
+    $('btnSyncReset').onclick = () => {
+      state.syncStat = { ok: 0, fail: 0, lastOk: 0, lastFail: 0, log: [] };
+      saveState();
+      openSyncStatModal();
+    };
+  }
+
   /* ---------- 配对卡片 ---------- */
   function renderPair() {
     const card = $('pairCard');
@@ -829,6 +960,7 @@
       $('btnImport').onclick = openImportModal;
     } else {
       const online = buddyOnline();
+      const manualBtn = connOpen ? '' : '<button id="btnManual" class="btn btn-sm btn-accent">手动直连</button>';
       const since = b.lastSeen
         ? new Date(b.lastSeen).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
         : '从未';
@@ -836,17 +968,19 @@
         <div class="pair-row">
           <div>
             <strong>好友：${escapeHtml(b.username || '未同步')}</strong>
-            <div class="muted"><span class="buddy-dot ${online ? 'dot-on' : 'dot-off'}"></span>${online ? '在线 · 实时同步中' : (b.username ? '离线 · 配对码 ' + escapeHtml(b.pairCode || '') + ' · 上次同步 ' + since + ' · 每 10 秒自动重试' : '已配对 · 配对码 ' + escapeHtml(b.pairCode || '') + ' · 等好友上线（每 10 秒自动重试）')}</div>
+            <div class="muted"><span class="buddy-dot ${online ? 'dot-on' : 'dot-off'}"></span>${online ? '在线 · 实时同步中' : (b.username ? '离线 · 配对码 ' + escapeHtml(b.pairCode || '') + ' · 上次同步 ' + since + ' · 每 5 秒自动重试' : '已配对 · 配对码 ' + escapeHtml(b.pairCode || '') + ' · 等好友上线（每 5 秒自动重试）')}</div>
           </div>
           <div class="pair-actions">
             <button id="btnExport" class="btn btn-sm">导出同步码</button>
             <button id="btnImport" class="btn btn-sm">导入同步码</button>
+            ${manualBtn}
             <button id="btnUnpair" class="btn btn-sm btn-danger">解除配对</button>
           </div>
         </div>`;
       $('btnExport').onclick = openExportModal;
       $('btnImport').onclick = openImportModal;
       $('btnUnpair').onclick = unpair;
+      const mb = $('btnManual'); if (mb) mb.onclick = openManualModal;
     }
   }
   function openCreateModal() {
@@ -944,6 +1078,183 @@
       toast('已解除配对');
     };
   }
+  /* ---------- 手动直连（WebRTC 直连，不依赖任何中转服务器） ----------
+     原理：两端在浏览器里直接建立 WebRTC 连接，只把「连接邀请 / 应答」两段文本
+     通过微信/QQ 互发（复制粘贴），贴回后即建立实时通道。
+     适用于自动同步连不上（如 0.peerjs.com 不可达/被墙）的网络环境。 */
+  function manualAbort() {
+    manualActive = false;
+    clearTimeout(manualTimer);
+    manualTimer = null;
+    try { if (manualPc) manualPc.close(); } catch (e) { }
+    manualPc = null;
+  }
+  function manualPcNew() {
+    manualAbort();
+    if (!window.RTCPeerConnection) throw new Error('当前浏览器不支持 WebRTC');
+    const pc = new RTCPeerConnection({ iceServers: PEER_OPT.config.iceServers });
+    manualPc = pc;
+    return pc;
+  }
+  function manualGather(pc) {
+    return new Promise((resolve) => {
+      let done = false;
+      const fin = () => { if (!done) { done = true; resolve(); } };
+      if (pc.iceGatheringState === 'complete') { fin(); return; }
+      pc.onicegatheringstatechange = () => { if (pc.iceGatheringState === 'complete') fin(); };
+      setTimeout(fin, 3500); // 兜底超时，用已收集到的候选继续
+    });
+  }
+  // 把 RTCDataChannel 包装成与现有连接对象一致的接口，直接复用 setupConn/handleMsg 同步逻辑
+  function manualWrapDc(dc) {
+    const conn = {
+      open: false,
+      hs: {},
+      on(ev, cb) { (this.hs[ev] = this.hs[ev] || []).push(cb); return this; },
+      emit(ev, arg) { (this.hs[ev] || []).forEach((cb) => { try { cb(arg); } catch (e) { } }); },
+      send(msg) { if (dc.readyState === 'open') { try { dc.send(JSON.stringify(msg)); } catch (e) { } } },
+      close() { try { dc.close(); } catch (e) { } }
+    };
+    dc.onopen = () => {
+      conn.open = true;
+      clearTimeout(manualTimer);
+      manualTimer = null;
+      conn.emit('open');
+    };
+    dc.onmessage = (ev) => {
+      try { conn.emit('data', JSON.parse(ev.data)); } catch (e) { }
+    };
+    dc.onclose = () => {
+      manualActive = false;
+      clearTimeout(manualTimer);
+      manualTimer = null;
+      const wasOpen = conn.open;
+      conn.open = false;
+      conn.emit('close');
+      try { if (manualPc) manualPc.close(); } catch (e) { }
+      manualPc = null;
+    };
+    dc.onerror = () => {
+      manualActive = false;
+      conn.open = false;
+      try { dc.close(); } catch (e) { }
+    };
+    return conn;
+  }
+  // 手动建连成功后暂停云端重试；45 秒没建立成功则自动放弃，交回云端自动重试
+  function manualArmWatchdog() {
+    manualActive = true;
+    clearTimeout(manualTimer);
+    manualTimer = setTimeout(() => {
+      if (!connOpen && manualActive) manualAbort();
+    }, 45000);
+  }
+  async function manualCreateOffer() {
+    if (!state || !state.buddy) throw new Error('请先配对');
+    const code = state.buddy.pairCode;
+    const role = state.buddy.role === 'host' ? 'host' : 'join';
+    const pc = manualPcNew();
+    const dc = pc.createDataChannel('sm');
+    const conn = manualWrapDc(dc);
+    setupConn(conn, code, role);
+    manualArmWatchdog();
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    await manualGather(pc);
+    return 'SM2.O.' + b64u(pc.localDescription.sdp);
+  }
+  async function manualAnswerOffer(offerSdp) {
+    if (!state || !state.buddy) throw new Error('请先配对');
+    const code = state.buddy.pairCode;
+    const role = state.buddy.role === 'host' ? 'host' : 'join';
+    const pc = manualPcNew();
+    pc.ondatachannel = (ev) => {
+      const conn = manualWrapDc(ev.channel);
+      setupConn(conn, code, role);
+    };
+    manualArmWatchdog();
+    await pc.setRemoteDescription({ type: 'offer', sdp: offerSdp });
+    const ans = await pc.createAnswer();
+    await pc.setLocalDescription(ans);
+    await manualGather(pc);
+    return 'SM2.A.' + b64u(pc.localDescription.sdp);
+  }
+  async function manualAcceptAnswer(answerSdp) {
+    if (!manualPc) throw new Error('请先在你自己这边点「生成邀请」');
+    await manualPc.setRemoteDescription({ type: 'answer', sdp: answerSdp });
+  }
+  function manualCopyText(t) {
+    const ta = document.createElement('textarea');
+    ta.value = t;
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); } catch (e) { }
+    document.body.removeChild(ta);
+    if (navigator.clipboard) navigator.clipboard.writeText(t).catch(() => { });
+  }
+  function openManualModal() {
+    if (connOpen) { toast('你们已经实时连接中，无需手动直连'); return; }
+    openModal('手动直连', `
+      <p class="muted">自动同步连不上时用这个：不依赖任何中转服务器，直接在你和好友之间建立连接，微信/QQ 互发内容即可。</p>
+      <div class="muted" style="line-height:1.7">
+        ① 任选一方点【生成邀请】，复制内容发给对方（<b>只由一方生成</b>）；<br>
+        ② 另一方把邀请完整粘贴到下面输入框，点【生成应答】，把内容发回去；<br>
+        ③ 邀请方把应答粘贴回输入框，点【完成连接】，即自动开始实时同步。
+      </div>
+      <textarea id="manualBox" class="modal-textarea" placeholder="把收到的邀请 / 应答内容完整粘贴到这里…" style="margin-top:10px"></textarea>
+      <div class="modal-row" style="flex-wrap:wrap">
+        <button id="btnManualOffer" class="btn btn-accent">① 生成邀请</button>
+        <button id="btnManualAnswer" class="btn">② 生成应答</button>
+        <button id="btnManualGo" class="btn">③ 完成连接</button>
+        <button id="btnManualCancel" class="btn btn-ghost">放弃</button>
+      </div>
+      <div id="manualStatus" class="modal-status"></div>`);
+    const st = $('manualStatus');
+    const box = $('manualBox');
+    $('btnManualOffer').onclick = async () => {
+      st.textContent = '正在生成邀请…';
+      try {
+        const t = await manualCreateOffer();
+        box.value = t;
+        manualCopyText(t);
+        st.textContent = '邀请已生成并复制 ✅ 把它发给好友，等 TA 把「应答」粘贴回来，再点【③ 完成连接】';
+        toast('邀请已复制，发给好友吧');
+      } catch (e) {
+        manualAbort();
+        st.textContent = '生成失败：' + String((e && e.message) || e);
+      }
+    };
+    $('btnManualAnswer').onclick = async () => {
+      const raw = box.value.trim();
+      if (raw.indexOf('SM2.O.') !== 0) { st.textContent = '请先把对方发来的「邀请」完整粘贴到输入框'; return; }
+      st.textContent = '正在生成应答…';
+      try {
+        const t = await manualAnswerOffer(b64d(raw.replace(/^SM2\.O\./, '')));
+        box.value = t;
+        manualCopyText(t);
+        st.textContent = '应答已生成并复制 ✅ 把它发回给邀请方，请 TA 点【③ 完成连接】';
+        toast('应答已复制，发回给好友吧');
+      } catch (e) {
+        manualAbort();
+        st.textContent = '生成失败：' + String((e && e.message) || e) + '（请确认粘贴内容完整）';
+      }
+    };
+    $('btnManualGo').onclick = async () => {
+      const raw = box.value.trim();
+      if (raw.indexOf('SM2.A.') !== 0) { st.textContent = '请把对方发来的「应答」完整粘贴到输入框'; return; }
+      st.textContent = '正在建立连接…';
+      try {
+        await manualAcceptAnswer(b64d(raw.replace(/^SM2\.A\./, '')));
+        st.textContent = '连接已建立 ✅ 正在自动同步…';
+        setTimeout(() => { if (connOpen) closeModal(); }, 1200);
+      } catch (e) {
+        manualAbort();
+        st.textContent = '连接失败：' + String((e && e.message) || e) + '（若双方网络类型特殊连不上，可用「同步码」同步）';
+      }
+    };
+    $('btnManualCancel').onclick = () => { manualAbort(); closeModal(); };
+  }
+
   /* ---------- 视图切换 / 渲染 ---------- */
   function switchView(name) {
     document.querySelectorAll('.tab').forEach((b) => b.classList.toggle('active', b.dataset.view === name));
@@ -975,6 +1286,12 @@
     renderAll();
 
     heartbeatTimer = setInterval(() => { if (connOpen) send({ t: 'ping' }); }, 15000);
+    // 周期同步：每 5 秒推一次最新进度（连接建立后生效），保证安排/超时状态及时到好友那边
+    syncLoopTimer = setInterval(() => {
+      if (connOpen) { sendSnapNow(); syncRecord(true, '周期同步'); }
+    }, 5000);
+    // 限时倒计时秒级刷新 + 到点自动标记超时
+    cdTickTimer = setInterval(tickCountdowns, 1000);
     // 跨天自动刷新
     setInterval(() => {
       if (state && todayStr() !== lastToday) {
@@ -998,6 +1315,7 @@
 
     // 顶栏
     $('logoutBtn').onclick = logout;
+    $('btnSyncStat').onclick = openSyncStatModal;
     document.querySelectorAll('.tab').forEach((b) => { b.onclick = () => switchView(b.dataset.view); });
 
     // 今日安排
@@ -1026,7 +1344,8 @@
       connOpen: connOpen,
       connecting: connecting,
       id: (b && b.pairCode) ? ownPeerId(b.pairCode, b.role === 'host' ? 'host' : 'join') : null,
-      log: dbgLog.slice()
+      log: dbgLog.slice(),
+      syncStat: state && state.syncStat ? { ok: state.syncStat.ok, fail: state.syncStat.fail } : null
     };
   };
 

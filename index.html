@@ -37,8 +37,11 @@
       <button class="tab" data-view="history">历史记录</button>
     </nav>
     <div class="userbox">
-      <span id="userName" class="username"></span>
-      <button id="logoutBtn" class="btn btn-ghost btn-sm">退出</button>
+      <div class="userbox-top">
+        <span id="userName" class="username"></span>
+        <button id="logoutBtn" class="btn btn-ghost btn-sm">退出</button>
+      </div>
+      <button id="btnSyncStat" class="btn btn-ghost btn-sm" title="查看同步成功/失败记录">⇄ 同步记录</button>
     </div>
   </header>
 
@@ -60,7 +63,15 @@
           <div id="myList" class="item-list"></div>
           <div class="add-row">
             <input id="newItemText" class="input" type="text" placeholder="添加一项今日安排…" maxlength="60">
-            <input id="newItemTime" class="input input-time" type="time">
+            <input id="newItemTime" class="input input-time" type="time" title="几点之前完成（可选）">
+            <select id="newItemDue" class="input input-due" title="限时完成倒计时（可选）：添加后开始倒计时，到点未勾选算未完成">
+              <option value="0">不限时</option>
+              <option value="30">30 分钟</option>
+              <option value="60">1 小时</option>
+              <option value="120">2 小时</option>
+              <option value="180">3 小时</option>
+              <option value="240">4 小时</option>
+            </select>
             <button id="btnAdd" class="btn btn-accent">添加</button>
           </div>
         </div>

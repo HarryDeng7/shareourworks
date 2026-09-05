@@ -153,7 +153,8 @@ body {
 }
 .tab:hover { color: var(--text); }
 .tab.active { background: var(--accent); color: #1c1400; font-weight: 700; }
-.userbox { display: flex; align-items: center; gap: 10px; }
+.userbox { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.userbox-top { display: flex; align-items: center; gap: 10px; }
 .username { color: var(--text); font-size: 14px; font-weight: 600; }
 
 .main { max-width: 1000px; margin: 0 auto; padding: 20px 16px 60px; }
@@ -256,6 +257,7 @@ input.item-text:focus { background: rgba(245, 158, 11, 0.1); box-shadow: 0 0 0 1
 .item-empty { color: #64748b; font-size: 13px; text-align: center; padding: 14px; border: 1px dashed var(--border); border-radius: 10px; }
 .add-row { display: flex; gap: 8px; margin-top: 12px; }
 .add-row .input { flex: 1; }
+.add-row .input-due { flex: none; width: 118px; color-scheme: dark; padding: 10px 8px; }
 .buddy-tag { font-size: 12px; color: var(--muted); }
 
 /* ===== 打卡面板 ===== */
@@ -459,4 +461,50 @@ input.item-text:focus { background: rgba(245, 158, 11, 0.1); box-shadow: 0 0 0 1
   .add-row { flex-wrap: wrap; }
   .add-row .input { flex: 1 1 100%; }
   .input-time { flex: 1; }
+  .add-row .input-due { flex: 1 1 100%; }
 }
+
+/* ===== 限时任务倒计时 ===== */
+.item-due {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  flex: none;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.item-due.miss { color: #f87171; }
+.item.miss {
+  border-color: rgba(239, 68, 68, 0.5);
+  background: rgba(239, 68, 68, 0.07);
+}
+.item.miss .item-text { color: #fca5a5; }
+
+/* ===== 同步记录弹窗 ===== */
+.sync-counts { display: flex; gap: 12px; margin-top: 12px; }
+.sync-num {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 8px;
+  text-align: center;
+}
+.sync-num b { display: block; font-size: 26px; font-weight: 800; }
+.sync-num.ok b { color: var(--green); }
+.sync-num.bad b { color: #f87171; }
+.sync-num span { font-size: 12px; color: var(--muted); }
+.sync-list {
+  margin-top: 12px;
+  max-height: 200px;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+.sync-line { padding: 2px 0; color: var(--muted); font-variant-numeric: tabular-nums; }
+.sync-line.ok { color: #86efac; }
+.sync-line.bad { color: #fca5a5; }
+.sync-list + .modal-row { flex-direction: row; }
