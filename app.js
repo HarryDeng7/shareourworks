@@ -105,8 +105,12 @@
   let reconnectTimer = null;
   let heartbeatTimer = null;
   let pushTimer = null;
-  let peerLibFailed = false;
-  let pairWaitCallback = null;
+  let libLoading = false;
+  let syncDownNotified = false;
+  let peerWatchdog = null;
+  // 轻量诊断日志（供 __smDebug 排查连接问题）
+  let dbgLog = [];
+  function dbgPush(x) { dbgLog.push(x); if (dbgLog.length > 12) dbgLog.shift(); }
 
   /* ---------- 提示 / 弹窗 ---------- */
   function toast(msg, ms) {
@@ -254,15 +258,30 @@
     'https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.5/peerjs.min.js',
   ];
 
+  // 自带 ICE 服务器：默认只有 Google STUN（国内经常连不上），
+  // 加上国内可达的 STUN 提高 NAT 打洞成功率。
+  const PEER_OPT = {
+    config: {
+      iceServers: [
+        { urls: 'stun:stun.chat.bilibili.com:3478' },
+        { urls: 'stun:stun.miwifi.com:3478' },
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:global.stun.twilio.com:3478' }
+      ]
+    }
+  };
+
   function loadPeerLib(cb) {
     if (window.Peer) { cb(true); return; }
-    if (peerLibFailed) { cb(false); return; }
+    if (libLoading) return; // 已有一次加载在途，避免重复堆积 script 标签
+    libLoading = true;
     let i = 0;
     const tryNext = () => {
-      if (i >= PEER_URLS.length) { peerLibFailed = true; cb(false); return; }
+      if (i >= PEER_URLS.length) { libLoading = false; cb(false); return; }
       const s = document.createElement('script');
       s.src = PEER_URLS[i++];
-      s.onload = () => cb(true);
+      s.onload = () => { libLoading = false; cb(true); };
       s.onerror = tryNext;
       document.head.appendChild(s);
     };
@@ -271,6 +290,8 @@
 
   function destroyPeer() {
     clearTimeout(reconnectTimer);
+    clearTimeout(peerWatchdog);
+    peerWatchdog = null;
     try { if (currentConn) currentConn.close(); } catch (e) { }
     try { if (peer) peer.destroy(); } catch (e) { }
     currentConn = null;
@@ -292,17 +313,43 @@
     }, 400);
   }
 
-  function scheduleReconnect() {
+  // 同步服务器连不上/长时间无响应：同一会话只提示一次，随后静默自动重试
+  function noteCloudDown() {
+    if (syncDownNotified) return;
+    syncDownNotified = true;
+    toast('实时同步暂时连不上（无法连接同步服务器），会自动重试；也可先用「同步码」手动同步', 3200);
+  }
+
+  function scheduleReconnect(delayMs) {
     if (!state || !state.buddy || !state.buddy.pairCode) return;
     clearTimeout(reconnectTimer);
     reconnectTimer = setTimeout(() => {
-      if (!state) return;
-      if (connOpen || connecting) return;
-      if (!state.buddy || !state.buddy.pairCode) return;
-      const role = state.buddy.role === 'host' ? 'host' : 'join';
-      if (role === 'host') hostPair(state.buddy.pairCode, { silent: true });
-      else joinPair(state.buddy.pairCode, { silent: true });
-    }, 20000);
+      try {
+        retryConnect();
+      } catch (e) {
+        // 兜底：重试入口自身异常也绝不让循环中断
+        if (state && state.buddy && state.buddy.pairCode && !connOpen) scheduleReconnect(15000);
+      }
+    }, delayMs || 10000);
+  }
+
+  // 重试入口：加入方的 Peer 还活着就直接重新拨号；
+  // 创建方只要保持在线监听，好友上线后会自动拨号过来。
+  function retryConnect() {
+    if (!state || !state.buddy || !state.buddy.pairCode) return;
+    if (connOpen) return;
+    const code = state.buddy.pairCode;
+    const role = state.buddy.role === 'host' ? 'host' : 'join';
+    if (role === 'host') {
+      if (peer && !peer.destroyed && peer.open) return; // 已在监听，无需动作
+      syncPair({ silent: true });
+      return;
+    }
+    if (peer && !peer.destroyed && peer.open) {
+      dialBuddy(peer, code, 'join'); // 无需重新注册，直接重拨
+      return;
+    }
+    syncPair({ silent: true });
   }
 
   function setupConn(conn, code, role, opts) {
@@ -311,10 +358,26 @@
     currentConn = conn;
     connOpen = false;
 
+    // 连接看门狗：拨号后 15 秒仍未建立（如 NAT 打洞卡住），关闭并重试，
+    // 避免界面永远停留在"连接中"。
+    let connTimer = setTimeout(() => {
+      if (!state) return;
+      if (conn !== currentConn || conn.open) return;
+      try { conn.close(); } catch (e) { }
+      connOpen = false; currentConn = null; connecting = false;
+      renderPair();
+      if (role === 'join') scheduleReconnect(3000);
+    }, 15000);
+    const clearConnTimer = () => { clearTimeout(connTimer); connTimer = null; };
+
     conn.on('open', () => {
+      dbgPush('conn-open');
+      clearConnTimer();
       connOpen = true;
       connecting = false;
+      syncDownNotified = false;
       if (!state.buddy) state.buddy = { username: '' };
+      const isNewConn = !state.buddy.lastSeen || (Date.now() - state.buddy.lastSeen) > 60000;
       state.buddy.pairCode = code;
       state.buddy.role = role;
       state.buddy.lastSeen = Date.now();
@@ -322,16 +385,29 @@
       sendSnapNow();
       saveState();
       renderAll();
+      if (isNewConn) toast('已与「' + (state.buddy.username || '好友') + '」同步成功 ⚡');
       if (opts.onJoined) opts.onJoined(state.buddy.username || '好友');
     });
 
     conn.on('data', (msg) => handleMsg(msg));
     conn.on('close', () => {
-      if (currentConn === conn) { connOpen = false; currentConn = null; connecting = false; renderPair(); scheduleReconnect(); }
+      clearConnTimer();
+      if (!state) return;
+      if (currentConn === conn) {
+        connOpen = false; currentConn = null; connecting = false; renderPair();
+        // 只有加入方需要主动重拨；创建方保持监听即可，好友会自动拨过来
+        if (role === 'join') scheduleReconnect();
+      }
     });
     conn.on('error', (err) => {
-      if (err && err.type === 'peer-unavailable' && opts.onFail) opts.onFail('未找到该配对码（好友可能未在等待）');
-      if (currentConn === conn) { connOpen = false; currentConn = null; connecting = false; renderPair(); scheduleReconnect(); }
+      clearConnTimer();
+      dbgPush('conn-err:' + (err && err.type));
+      if (!state) return;
+      // 好友不在线时拨号会报 peer-unavailable，属正常情况，稍后自动重试
+      if (currentConn === conn) {
+        connOpen = false; currentConn = null; connecting = false; renderPair();
+        if (role === 'join') scheduleReconnect(5000);
+      }
     });
   }
 
@@ -363,80 +439,107 @@
   function sendSnapNow() {
     if (connOpen) send({ t: 'snap', d: buildSnap() });
   }
-  function hostPair(code, opts) {
+  // 配对后双方使用固定 ID：创建方 -a、加入方 -b，各自监听并互相拨号，
+  // 只要有配对码，任何一方上线都能自动连上，无需另一方在线等待。
+  function ownPeerId(code, role) {
+    return 'stone-mates-' + code.toLowerCase() + (role === 'host' ? '-a' : '-b');
+  }
+  function buddyPeerId(code, role) {
+    return 'stone-mates-' + code.toLowerCase() + (role === 'host' ? '-b' : '-a');
+  }
+
+  // 连接策略：创建方固定 ID 后缀 -a（只监听），加入方后缀 -b（负责拨号）。
+  // 双方不需要同时在线等待：只要有配对码，任一方上线后最多十几秒就能自动连上；
+  // 单向拨号也避免了双方同时互拨导致的连接互相顶替、始终连不上的竞态。
+  function syncPair(opts) {
     opts = opts || {};
-    connecting = true;
+    if (!state || !state.buddy || !state.buddy.pairCode) return;
+    if (connOpen) return;
+    const code = state.buddy.pairCode;
+    const role = state.buddy.role === 'host' ? 'host' : 'join';
+    clearTimeout(peerWatchdog);
+    peerWatchdog = null;
+    // 库加载看门狗：CDN 无响应时 onload/onerror 都不会触发，超时后自动重试
+    peerWatchdog = setTimeout(() => {
+      connecting = false;
+      if (!window.Peer) {
+        noteCloudDown();
+        scheduleReconnect(10000);
+      }
+    }, 15000);
     loadPeerLib((ok) => {
       if (!ok) {
-        connecting = false;
-        toast('P2P 实时同步不可用，可使用「同步码」手动同步');
-        if (opts.onFail) opts.onFail('P2P 不可用');
+        if (!state || !state.buddy) return;
+        if (!opts.silent) toast('实时同步不可用（无法加载同步库），可用「同步码」手动同步');
+        noteCloudDown();
+        scheduleReconnect(30000);
         return;
       }
+      if (!state || !state.buddy || !state.buddy.pairCode) return;
+      if (connOpen) return;
       destroyPeer();
+      connecting = true;
       try {
-        const p = new Peer('stone-mates-' + code.toLowerCase());
+        const p = new Peer(ownPeerId(code, role), PEER_OPT);
         peer = p;
-        p.on('open', () => { connecting = false; });
+        // 看门狗：服务器长时间无响应时 Peer 既不会 open 也不会报错，
+        // 不处理会永远卡在连接中 —— 超时销毁并自动重试。
+        peerWatchdog = setTimeout(() => {
+          dbgPush('wd');
+          connecting = false;
+          if (peer === p) { try { p.destroy(); } catch (e) { } peer = null; }
+          noteCloudDown();
+          scheduleReconnect(8000);
+        }, 12000);
+        p.on('open', () => {
+          dbgPush('popen:' + role);
+          connecting = false;
+          // 创建方只监听，等好友拨号过来；加入方此时拨号连好友
+          if (role === 'join') dialBuddy(p, code, role);
+        });
         p.on('connection', (conn) => {
-          setupConn(conn, code, 'host', opts);
+          // 好友拨号过来，直接建立连接
+          setupConn(conn, code, role, opts);
+        });
+        p.on('disconnected', () => {
+          connecting = false;
+          if (peer === p) { try { p.destroy(); } catch (e) { } peer = null; }
+          noteCloudDown();
+          scheduleReconnect(5000);
         });
         p.on('error', (err) => {
           connecting = false;
-          if (err.type === 'unavailable-id') {
-            // 好友那边正在监听 → 自动转为连接
-            toast('检测到好友正在等待，自动转为连接…');
-            if (state.buddy) state.buddy.role = 'join';
-            peer = null;
-            try { p.destroy(); } catch (e) { }
-            joinPair(code, opts);
-          } else if (err.type === 'network' || err.type === 'server-error' || err.type === 'socket-error' || err.type === 'socket-closed') {
+          const et = err.type;
+          dbgPush('perr:' + et);
+          if (et === 'unavailable-id') {
+            // 自己的 ID 仍被占用（旧页面/旧会话未释放），销毁后稍候再注册
+            if (peer === p) { try { p.destroy(); } catch (e) { } peer = null; }
             scheduleReconnect();
+          } else if (et === 'peer-unavailable') {
+            // 好友不在线：加入方稍后自动重拨
+            scheduleReconnect();
+          } else if (et === 'network' || et === 'server-error' || et === 'socket-error' || et === 'socket-closed') {
+            if (peer === p) { try { p.destroy(); } catch (e) { } peer = null; }
+            noteCloudDown();
+            scheduleReconnect();
+          } else if (et === 'browser-incompatible') {
+            noteCloudDown();
           }
         });
       } catch (e) {
         connecting = false;
         if (opts.onFail) opts.onFail(String(e));
+        // 任何同步异常都不允许中断重试循环，稍后自动再来一次
+        scheduleReconnect(15000);
       }
     });
   }
 
-  function joinPair(code, opts) {
-    opts = opts || {};
-    connecting = true;
-    loadPeerLib((ok) => {
-      if (!ok) {
-        connecting = false;
-        toast('P2P 实时同步不可用，可使用「同步码」手动同步');
-        if (opts.onFail) opts.onFail('P2P 不可用');
-        return;
-      }
-      destroyPeer();
-      try {
-        const p = new Peer();
-        peer = p;
-        p.on('open', () => {
-          const conn = p.connect('stone-mates-' + code.toLowerCase(), { reliable: true });
-          setupConn(conn, code, 'join', opts);
-          setTimeout(() => {
-            if (connecting && conn && !conn.open) {
-              connecting = false;
-              if (opts.onFail) opts.onFail('未找到该配对码（好友可能未在等待）');
-            }
-          }, 12000);
-        });
-        p.on('error', (err) => {
-          connecting = false;
-          if (opts.onFail && err.type === 'peer-unavailable') opts.onFail('未找到该配对码（好友可能未在等待）');
-          if (err.type === 'network' || err.type === 'server-error' || err.type === 'socket-error' || err.type === 'socket-closed') {
-            scheduleReconnect();
-          }
-        });
-      } catch (e) {
-        connecting = false;
-        if (opts.onFail) opts.onFail(String(e));
-      }
-    });
+  function dialBuddy(p, code, role, opts) {
+    if (!state || !state.buddy || connOpen || !p || p.destroyed) return;
+    dbgPush('dial');
+    const conn = p.connect(buddyPeerId(code, role), { reliable: true });
+    setupConn(conn, code, role, opts);
   }
 
   function makeCode() {
@@ -550,7 +653,7 @@
     const b = state.buddy;
     const list = $('buddyList');
     const statusEl = $('buddyStatus');
-    if (!b || !b.schedule || !b.schedule.length) {
+    if (!b || !(b.schedule || []).length) {
       list.innerHTML = '<div class="item-empty">' + (b ? '好友还没有添加安排' : '配对后即可看到好友的安排') + '</div>';
       $('buddyBar').style.width = '0%';
       $('buddyProgText').textContent = '0/0';
@@ -583,11 +686,13 @@
     const myDone = state.schedule.length > 0 && [...myIds].every((id) => myDoneSet.has(id));
     const myLeft = state.schedule.filter((i) => !myDoneSet.has(i.id)).length;
     const b = state.buddy;
-    const bIds = b ? new Set(b.schedule.map((i) => i.id)) : new Set();
+    const bSched = b ? (b.schedule || []) : [];
+    const bIds = b ? new Set(bSched.map((i) => i.id)) : new Set();
     const bDoneSet = b ? new Set((b.completions && b.completions[t]) || []) : new Set();
-    const bDone = !!b && b.schedule.length > 0 && [...bIds].every((id) => bDoneSet.has(id));
-    const bLeft = b ? b.schedule.filter((i) => !bDoneSet.has(i.id)).length : 0;
-    const bStale = !!b && (Date.now() - (b.lastSeen || 0) > 12 * 3600 * 1000);
+    const bDone = bSched.length > 0 && [...bIds].every((id) => bDoneSet.has(id));
+    const bLeft = bSched.filter((i) => !bDoneSet.has(i.id)).length;
+    // 刚配对还没同步过时不提示数据过期
+    const bStale = !!b && !!b.lastSeen && (Date.now() - b.lastSeen > 12 * 3600 * 1000);
     return { t, done, myDone, bDone, hasBuddy: !!b, myLeft, bLeft, bStale };
   }
 
@@ -704,7 +809,7 @@
         <div class="pair-row">
           <div>
             <strong>还没有配对</strong>
-            <div class="muted">生成配对码发给好友，或输入好友的配对码</div>
+            <div class="muted">生成配对码发给好友（好友随时可加入），或输入好友的配对码</div>
           </div>
           <div class="pair-actions">
             <button id="btnCreatePair" class="btn btn-accent">创建配对码</button>
@@ -730,8 +835,8 @@
       card.innerHTML = `
         <div class="pair-row">
           <div>
-            <strong>好友：${escapeHtml(b.username || '未知')}</strong>
-            <div class="muted"><span class="buddy-dot ${online ? 'dot-on' : 'dot-off'}"></span>${online ? '在线 · 实时同步中' : '离线 · 上次同步 ' + since}</div>
+            <strong>好友：${escapeHtml(b.username || '未同步')}</strong>
+            <div class="muted"><span class="buddy-dot ${online ? 'dot-on' : 'dot-off'}"></span>${online ? '在线 · 实时同步中' : (b.username ? '离线 · 配对码 ' + escapeHtml(b.pairCode || '') + ' · 上次同步 ' + since + ' · 每 10 秒自动重试' : '已配对 · 配对码 ' + escapeHtml(b.pairCode || '') + ' · 等好友上线（每 10 秒自动重试）')}</div>
           </div>
           <div class="pair-actions">
             <button id="btnExport" class="btn btn-sm">导出同步码</button>
@@ -746,39 +851,46 @@
   }
   function openCreateModal() {
     const code = makeCode();
-    pairWaitCallback = null;
+    state.buddy = { pairCode: code, role: 'host' };
+    saveState();
+    renderAll();
     openModal('创建配对码', `
-      <p class="muted">把配对码发给好友，好友打开网站后点「输入配对码」填入即可。</p>
+      <p class="muted">把配对码发给好友，好友随时输入这个码即可加入（不需要你在线等待）。</p>
       <div class="pair-big-code">${code}</div>
-      <div id="pairWait" class="pair-hint">正在等待好友加入…（请保持此窗口打开）</div>`);
-    pairWaitCallback = (u) => {
-      const w = $('pairWait');
-      if (w) w.textContent = '🎉 好友 ' + u + ' 已加入！';
-      closeModal();
-      toast('与「' + u + '」配对成功！安排会自动同步');
+      <div class="pair-hint">双方同时在线时，安排与进度会自动同步 ⚡</div>
+      <div class="modal-row">
+        <button id="btnCopyPairCode" class="btn btn-accent">复制配对码</button>
+        <button id="btnCreateDone" class="btn">完成</button>
+      </div>`);
+    $('btnCopyPairCode').onclick = () => {
+      const ta = document.createElement('textarea');
+      ta.value = code;
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch (e) { }
+      document.body.removeChild(ta);
+      if (navigator.clipboard) navigator.clipboard.writeText(code).catch(() => { });
+      toast('配对码已复制，发给好友吧');
     };
-    hostPair(code, {
-      silent: false,
-      onFail: (msg) => { const w = $('pairWait'); if (w) w.textContent = '连接失败：' + msg; },
-      onJoined: pairWaitCallback,
-    });
+    $('btnCreateDone').onclick = () => { closeModal(); renderAll(); };
+    syncPair({ silent: true });
   }
 
   function openJoinModal() {
     openModal('输入配对码', `
-      <p class="muted">输入好友的 6 位配对码（不区分大小写）</p>
+      <p class="muted">输入好友的 6 位配对码（不区分大小写），随时可加入，无需好友在线等待。</p>
       <input id="joinCodeInput" class="auth-input" placeholder="例如 A3B7K2" maxlength="6" style="text-transform:uppercase">
       <div class="modal-row"><button id="btnJoinGo" class="btn btn-accent btn-block">加入</button></div>
       <div id="joinStatus" class="modal-status"></div>`);
     $('btnJoinGo').onclick = () => {
       const code = $('joinCodeInput').value.trim().toUpperCase();
       if (!/^[A-Z0-9]{4,8}$/.test(code)) { $('joinStatus').textContent = '请输入有效的配对码'; return; }
-      $('joinStatus').textContent = '正在连接…';
-      joinPair(code, {
-        silent: false,
-        onFail: (msg) => { $('joinStatus').textContent = msg; },
-        onJoined: () => { closeModal(); toast('配对成功！安排会自动同步'); },
-      });
+      state.buddy = { pairCode: code, role: 'join' };
+      saveState();
+      closeModal();
+      renderAll();
+      toast('已加入配对！好友上线后会自动同步');
+      syncPair({ silent: true });
     };
     $('joinCodeInput').focus();
   }
@@ -872,9 +984,7 @@
     }, 30000);
 
     if (state.buddy && state.buddy.pairCode) {
-      const role = state.buddy.role === 'host' ? 'host' : 'join';
-      if (role === 'host') hostPair(state.buddy.pairCode, { silent: true });
-      else joinPair(state.buddy.pairCode, { silent: true });
+      syncPair({ silent: true });
     }
   }
 
@@ -906,6 +1016,19 @@
     const u = localStorage.getItem(SESSION_KEY);
     if (u && localStorage.getItem(stateKey(u))) enterApp(u);
   }
+
+  // 调试：外部（开发者工具/测试脚本）查看 P2P 内部状态
+  window.__smDebug = function () {
+    const b = state && state.buddy;
+    return {
+      peer: !!peer,
+      peerOpen: !!(peer && peer.open),
+      connOpen: connOpen,
+      connecting: connecting,
+      id: (b && b.pairCode) ? ownPeerId(b.pairCode, b.role === 'host' ? 'host' : 'join') : null,
+      log: dbgLog.slice()
+    };
+  };
 
   document.addEventListener('DOMContentLoaded', init);
 })();
