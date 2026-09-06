@@ -960,7 +960,10 @@
       <input id="acctOld" class="input" type="password" placeholder="当前密码" autocomplete="current-password">
       <input id="acctNew" class="input" type="password" placeholder="新密码（至少 4 位）" autocomplete="new-password">
       <div id="acctErr" class="acct-err"></div>
-      <div class="modal-row" style="flex-direction:row;justify-content:flex-end"><button id="btnAcctChg" class="btn btn-accent btn-sm">保存新密码</button></div>`);
+      <div class="modal-row" style="flex-direction:row;justify-content:flex-end"><button id="btnAcctChg" class="btn btn-accent btn-sm">保存新密码</button></div>
+      <div class="acct-sep" style="margin-top:14px"></div>
+      <p class="muted" style="font-size:12px;margin-bottom:8px">📦 换手机 / 新设备？导出备份码后，到另一台设备的登录页点「用备份码恢复账号」。</p>
+      <div class="modal-row" style="flex-direction:row;justify-content:flex-end"><button id="btnAcctBackup" class="btn btn-sm">备份账号</button></div>`);
     $('btnAcctChg').onclick = saveNewPwd;
     $('acctNew').addEventListener('keydown', (e) => { if (e.key === 'Enter') saveNewPwd(); });
     const showBtn = $('btnAcctShow');
@@ -968,6 +971,7 @@
       showBtn.onclick = showLegacyPwd;
       $('acctShowOld').addEventListener('keydown', (e) => { if (e.key === 'Enter') showLegacyPwd(); });
     }
+    $('btnAcctBackup').onclick = openAcctBackupModal;
   }
 
   // 旧账号：验证当前密码后补存明文，弹窗立即显示密码
@@ -995,6 +999,56 @@
     saveState();
     toast(newP === oldP ? '🔑 已保存，以后打开「用户详情」即可直接看到密码' : '🔑 密码已修改并保存');
     openAccountModal();
+  }
+
+  /* ---------- 账号备份 / 恢复（跨设备搬家） ---------- */
+  // 备份：把整个本地账号（含密码、安排、进度、配对信息）打包成 AM1. 开头的备份码
+  function openAcctBackupModal() {
+    const rec = JSON.parse(localStorage.getItem(stateKey(state.account.username)));
+    const code = 'AM1.' + b64u(JSON.stringify(rec));
+    openModal('账号备份', `
+      <p class="muted">把这串备份码发到自己的另一台设备（如手机）：该设备登录页点「用备份码恢复账号」粘贴即可。备份包含账号密码与全部数据，会覆盖目标设备上的同名账号，请只发给自己、不要外传。</p>
+      <textarea id="bkCode" class="modal-textarea" readonly>${escapeHtml(code)}</textarea>
+      <div class="modal-row"><button id="btnBkCopy" class="btn btn-accent btn-block">复制备份码</button></div>`);
+    $('btnBkCopy').onclick = () => {
+      const ta = $('bkCode');
+      ta.select();
+      try { document.execCommand('copy'); } catch (e) { }
+      if (navigator.clipboard) navigator.clipboard.writeText(code).catch(() => { });
+      toast('已复制备份码');
+    };
+  }
+
+  // 恢复：登录页使用，粘贴备份码后覆盖本机同名账号并自动登录
+  function openAcctRestoreModal() {
+    openModal('恢复账号', `
+      <p class="muted">粘贴从另一台设备导出的「备份码」（AM1. 开头），即可在这台设备上恢复该账号并自动登录。若本机已有同名账号，将被备份内容覆盖。</p>
+      <textarea id="rsCode" class="modal-textarea" placeholder="粘贴备份码…"></textarea>
+      <div class="modal-row"><button id="btnRsGo" class="btn btn-accent btn-block">恢复账号</button></div>
+      <div id="rsStatus" class="modal-status"></div>`);
+    $('btnRsGo').onclick = () => {
+      const st = $('rsStatus');
+      const raw = $('rsCode').value.trim();
+      try {
+        const rec = JSON.parse(b64d(raw.replace(/^AM1\./, '')));
+        if (!rec || typeof rec !== 'object' || !rec.account || typeof rec.account !== 'object'
+            || typeof rec.account.username !== 'string' || !/^[\w\u4e00-\u9fa5-]{2,16}$/.test(rec.account.username)
+            || typeof rec.account.salt !== 'string' || typeof rec.account.hash !== 'string') {
+          st.textContent = '备份码无效，请检查是否完整复制'; return;
+        }
+        if (!Array.isArray(rec.schedule)) rec.schedule = [];
+        if (!rec.completions || typeof rec.completions !== 'object') rec.completions = {};
+        if (!Array.isArray(rec.checkedDays)) rec.checkedDays = [];
+        const key = stateKey(rec.account.username);
+        const existed = !!localStorage.getItem(key);
+        localStorage.setItem(key, JSON.stringify(rec));
+        login(rec.account.username);
+        closeModal();
+        toast(existed ? '账号已恢复（本机同名旧数据已被覆盖）' : '账号已恢复！');
+      } catch (e) {
+        st.textContent = '备份码无效，请检查后重试';
+      }
+    };
   }
 
   /* ---------- 配对卡片 ---------- */
@@ -1376,6 +1430,7 @@
     $('authTabLogin').onclick = () => setAuthMode('login');
     $('authTabReg').onclick = () => setAuthMode('reg');
     $('authBtn').onclick = doAuth;
+    $('authRestore').onclick = openAcctRestoreModal;
     $('authUser').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('authPass').focus(); });
     $('authPass').addEventListener('keydown', (e) => { if (e.key === 'Enter') doAuth(); });
 
