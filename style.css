@@ -508,3 +508,26 @@ input.item-text:focus { background: rgba(245, 158, 11, 0.1); box-shadow: 0 0 0 1
 .sync-line.ok { color: #86efac; }
 .sync-line.bad { color: #fca5a5; }
 .sync-list + .modal-row { flex-direction: row; }
+
+/* ===== 用户详情弹窗 ===== */
+.acct-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px dashed var(--border);
+}
+.acct-row b { font-size: 15px; }
+.acct-pwd {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--accent);
+  word-break: break-all;
+  text-align: right;
+}
+.acct-sep { height: 1px; margin: 14px 0 12px; background: var(--border); }
+.acct-err { color: #fca5a5; font-size: 13px; min-height: 18px; margin: 4px 0 0; }
+#acctOld,
+#acctNew { width: 100%; box-sizing: border-box; margin-bottom: 8px; }

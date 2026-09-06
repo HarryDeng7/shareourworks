@@ -185,6 +185,8 @@
       const s = defaultState(u);
       s.account.salt = randomHex(8);
       s.account.hash = hashStr(s.account.salt + ':' + p);
+      // 同时存一份明文，仅存自己浏览器本地（不随任何同步发送），供「用户详情」查看密码
+      s.account.pwd = p;
       localStorage.setItem(stateKey(u), JSON.stringify(s));
       login(u);
     } else {
@@ -931,6 +933,40 @@
     };
   }
 
+  /* ---------- 用户详情弹窗 ---------- */
+  function openAccountModal() {
+    const acc = state.account;
+    const pwdHtml = acc.pwd
+      ? '<code class="acct-pwd" id="acctPwdTxt">' + escapeHtml(acc.pwd) + '</code>'
+      : '<span class="muted" id="acctPwdTxt">旧账号注册时未保存密码，点下方「保存新密码」一次即可直接显示（可填原密码）</span>';
+    openModal('用户详情', `
+      <div class="acct-row"><span class="muted">用户名</span><b>${escapeHtml(acc.username)}</b></div>
+      <div class="acct-row"><span class="muted">密码</span>${pwdHtml}</div>
+      <div class="acct-sep"></div>
+      <div class="muted" style="margin-bottom:6px">🔑 修改密码（需验证当前密码，改完立即生效）</div>
+      <input id="acctOld" class="input" type="password" placeholder="当前密码" autocomplete="current-password">
+      <input id="acctNew" class="input" type="password" placeholder="新密码（至少 4 位）" autocomplete="new-password">
+      <div id="acctErr" class="acct-err"></div>
+      <div class="modal-row" style="flex-direction:row;justify-content:flex-end"><button id="btnAcctChg" class="btn btn-accent btn-sm">保存新密码</button></div>`);
+    $('btnAcctChg').onclick = saveNewPwd;
+    $('acctNew').addEventListener('keydown', (e) => { if (e.key === 'Enter') saveNewPwd(); });
+  }
+
+  function saveNewPwd() {
+    const acc = state.account;
+    const err = $('acctErr');
+    const oldP = $('acctOld').value;
+    const newP = $('acctNew').value;
+    if (!oldP || acc.hash !== hashStr(acc.salt + ':' + oldP)) { err.textContent = '当前密码不正确'; return; }
+    if (newP.length < 4) { err.textContent = '新密码至少 4 位'; return; }
+    acc.salt = randomHex(8);
+    acc.hash = hashStr(acc.salt + ':' + newP);
+    acc.pwd = newP;
+    saveState();
+    toast(newP === oldP ? '🔑 已保存，以后打开「用户详情」即可直接看到密码' : '🔑 密码已修改并保存');
+    openAccountModal();
+  }
+
   /* ---------- 配对卡片 ---------- */
   function renderPair() {
     const card = $('pairCard');
@@ -1315,6 +1351,7 @@
 
     // 顶栏
     $('logoutBtn').onclick = logout;
+    $('btnAcct').onclick = openAccountModal;
     $('btnSyncStat').onclick = openSyncStatModal;
     document.querySelectorAll('.tab').forEach((b) => { b.onclick = () => switchView(b.dataset.view); });
 
