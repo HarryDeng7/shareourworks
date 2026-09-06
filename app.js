@@ -195,6 +195,11 @@
       let s;
       try { s = JSON.parse(raw); } catch (e) { err.textContent = '本地数据损坏'; return; }
       if (!s.account || s.account.hash !== hashStr(s.account.salt + ':' + p)) { err.textContent = '密码不正确'; return; }
+      // 登录成功顺手补存明文（仅本地）：旧账号下次登录后，详情里也能直接看到密码
+      if (!s.account.pwd) {
+        s.account.pwd = p;
+        localStorage.setItem(stateKey(u), JSON.stringify(s));
+      }
       login(u);
     }
   }
@@ -936,12 +941,20 @@
   /* ---------- 用户详情弹窗 ---------- */
   function openAccountModal() {
     const acc = state.account;
+    const legacy = !acc.pwd;
     const pwdHtml = acc.pwd
       ? '<code class="acct-pwd" id="acctPwdTxt">' + escapeHtml(acc.pwd) + '</code>'
-      : '<span class="muted" id="acctPwdTxt">旧账号注册时未保存密码，点下方「保存新密码」一次即可直接显示（可填原密码）</span>';
+      : '<span class="muted" id="acctPwdTxt">旧账号未保存密码，输入当前密码点「显示密码」即可直接显示</span>';
+    const legacyHtml = legacy ? `
+      <div class="acct-verify">
+        <input id="acctShowOld" class="input" type="password" placeholder="输入当前密码" autocomplete="current-password">
+        <button id="btnAcctShow" class="btn btn-accent btn-sm" style="flex:none">🔓 显示密码</button>
+      </div>
+      <div id="acctShowErr" class="acct-err"></div>` : '';
     openModal('用户详情', `
       <div class="acct-row"><span class="muted">用户名</span><b>${escapeHtml(acc.username)}</b></div>
       <div class="acct-row"><span class="muted">密码</span>${pwdHtml}</div>
+      ${legacyHtml}
       <div class="acct-sep"></div>
       <div class="muted" style="margin-bottom:6px">🔑 修改密码（需验证当前密码，改完立即生效）</div>
       <input id="acctOld" class="input" type="password" placeholder="当前密码" autocomplete="current-password">
@@ -950,6 +963,23 @@
       <div class="modal-row" style="flex-direction:row;justify-content:flex-end"><button id="btnAcctChg" class="btn btn-accent btn-sm">保存新密码</button></div>`);
     $('btnAcctChg').onclick = saveNewPwd;
     $('acctNew').addEventListener('keydown', (e) => { if (e.key === 'Enter') saveNewPwd(); });
+    const showBtn = $('btnAcctShow');
+    if (showBtn) {
+      showBtn.onclick = showLegacyPwd;
+      $('acctShowOld').addEventListener('keydown', (e) => { if (e.key === 'Enter') showLegacyPwd(); });
+    }
+  }
+
+  // 旧账号：验证当前密码后补存明文，弹窗立即显示密码
+  function showLegacyPwd() {
+    const acc = state.account;
+    const err = $('acctShowErr');
+    const v = $('acctShowOld').value;
+    if (!v || acc.hash !== hashStr(acc.salt + ':' + v)) { err.textContent = '当前密码不正确'; return; }
+    acc.pwd = v;
+    saveState();
+    toast('🔑 密码已显示，下次打开「用户详情」直接可见');
+    openAccountModal();
   }
 
   function saveNewPwd() {

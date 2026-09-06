@@ -531,3 +531,5 @@ input.item-text:focus { background: rgba(245, 158, 11, 0.1); box-shadow: 0 0 0 1
 .acct-err { color: #fca5a5; font-size: 13px; min-height: 18px; margin: 4px 0 0; }
 #acctOld,
 #acctNew { width: 100%; box-sizing: border-box; margin-bottom: 8px; }
+.acct-verify { display: flex; gap: 8px; margin-top: 10px; }
+.acct-verify .input { flex: 1; box-sizing: border-box; margin-bottom: 0; }
