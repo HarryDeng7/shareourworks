@@ -191,7 +191,7 @@
       login(u);
     } else {
       const raw = localStorage.getItem(stateKey(u));
-      if (!raw) { err.textContent = '用户不存在，先注册一个吧'; return; }
+      if (!raw) { err.textContent = '用户不存在：账号只保存在创建它的设备上。新设备请点下方「用备份码恢复账号」把账号搬过来；否则先注册一个'; return; }
       let s;
       try { s = JSON.parse(raw); } catch (e) { err.textContent = '本地数据损坏'; return; }
       if (!s.account || s.account.hash !== hashStr(s.account.salt + ':' + p)) { err.textContent = '密码不正确'; return; }
