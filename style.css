@@ -533,3 +533,16 @@ input.item-text:focus { background: rgba(245, 158, 11, 0.1); box-shadow: 0 0 0 1
 #acctNew { width: 100%; box-sizing: border-box; margin-bottom: 8px; }
 .acct-verify { display: flex; gap: 8px; margin-top: 10px; }
 .acct-verify .input { flex: 1; box-sizing: border-box; margin-bottom: 0; }
+
+/* 恢复账号弹窗里的备份文件选择框 */
+#rsFile { width: 100%; box-sizing: border-box; font-size: 13px; padding: 8px 10px; }
+#rsFile::file-selector-button {
+  background: var(--panel-2);
+  color: var(--text);
+  border: none;
+  border-radius: 8px;
+  padding: 6px 12px;
+  margin-right: 10px;
+  cursor: pointer;
+  font-size: 13px;
+}

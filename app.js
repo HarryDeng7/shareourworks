@@ -962,7 +962,8 @@
       <div id="acctErr" class="acct-err"></div>
       <div class="modal-row" style="flex-direction:row;justify-content:flex-end"><button id="btnAcctChg" class="btn btn-accent btn-sm">保存新密码</button></div>
       <div class="acct-sep" style="margin-top:14px"></div>
-      <p class="muted" style="font-size:12px;margin-bottom:8px">📦 换手机 / 新设备？导出备份码后，到另一台设备的登录页点「用备份码恢复账号」。</p>
+      <p class="muted" style="font-size:12px;margin-bottom:8px">📦 换电脑？导出备份码或下载备份文件，到另一台电脑的登录页点「用备份码恢复账号」。请以最近使用的那台电脑为准。</p>
+      <div class="acct-row"><span class="muted">上次备份</span><span id="acctBackupTime" class="muted"></span></div>
       <div class="modal-row" style="flex-direction:row;justify-content:flex-end"><button id="btnAcctBackup" class="btn btn-sm">备份账号</button></div>`);
     $('btnAcctChg').onclick = saveNewPwd;
     $('acctNew').addEventListener('keydown', (e) => { if (e.key === 'Enter') saveNewPwd(); });
@@ -972,6 +973,18 @@
       $('acctShowOld').addEventListener('keydown', (e) => { if (e.key === 'Enter') showLegacyPwd(); });
     }
     $('btnAcctBackup').onclick = openAcctBackupModal;
+    renderBackupTime();
+  }
+
+  // 「上次备份」时间：提醒换电脑前先备份一次
+  function renderBackupTime() {
+    const el = $('acctBackupTime');
+    if (!el) return;
+    const t = state.lastBackupAt;
+    if (!t) { el.textContent = '未备份过，换电脑前先备份一次'; return; }
+    const d = new Date(t);
+    const p = (n) => String(n).padStart(2, '0');
+    el.textContent = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
   }
 
   // 旧账号：验证当前密码后补存明文，弹窗立即显示密码
@@ -1001,53 +1014,128 @@
     openAccountModal();
   }
 
-  /* ---------- 账号备份 / 恢复（跨设备搬家） ---------- */
-  // 备份：把整个本地账号（含密码、安排、进度、配对信息）打包成 AM1. 开头的备份码
-  function openAcctBackupModal() {
+  /* ---------- 账号备份 / 恢复（跨电脑搬家，手动码 / 文件，不走云端） ---------- */
+  // 备份码：把整个本地账号（含密码、安排、进度、配对信息）打包成 AM1. 开头的字符串
+  function buildBackupCode() {
     const rec = JSON.parse(localStorage.getItem(stateKey(state.account.username)));
-    const code = 'AM1.' + b64u(JSON.stringify(rec));
+    return 'AM1.' + b64u(JSON.stringify(rec));
+  }
+
+  // 记录一次成功的备份（用户详情里显示「上次备份」时间）
+  function markBackupDone() {
+    state.lastBackupAt = Date.now();
+    saveState();
+    renderBackupTime();
+  }
+
+  // 下载文本文件（备份文件，方便跨电脑传输：微信文件传输助手 / U盘 / 网盘）
+  function downloadTextFile(name, text) {
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function backupFileName() {
+    const d = new Date();
+    const p = (n) => String(n).padStart(2, '0');
+    const stamp = d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '-' + p(d.getHours()) + p(d.getMinutes());
+    return 'stone-mates-backup-' + state.account.username + '-' + stamp + '.txt';
+  }
+
+  function openAcctBackupModal() {
+    const code = buildBackupCode();
     openModal('账号备份', `
-      <p class="muted">把这串备份码发到自己的另一台设备（如手机）：该设备登录页点「用备份码恢复账号」粘贴即可。备份包含账号密码与全部数据，会覆盖目标设备上的同名账号，请只发给自己、不要外传。</p>
+      <p class="muted">换电脑用同一账号：把备份码或备份文件拿到另一台电脑，在它的登录页点「用备份码恢复账号」。备份包含账号密码与全部数据，请只发给自己、不要外传。</p>
       <textarea id="bkCode" class="modal-textarea" readonly>${escapeHtml(code)}</textarea>
-      <div class="modal-row"><button id="btnBkCopy" class="btn btn-accent btn-block">复制备份码</button></div>`);
+      <div class="modal-row"><button id="btnBkCopy" class="btn btn-accent btn-block">复制备份码</button></div>
+      <div class="modal-row"><button id="btnBkFile" class="btn btn-block">下载备份文件（推荐跨电脑传输）</button></div>`);
     $('btnBkCopy').onclick = () => {
       const ta = $('bkCode');
       ta.select();
       try { document.execCommand('copy'); } catch (e) { }
       if (navigator.clipboard) navigator.clipboard.writeText(code).catch(() => { });
+      markBackupDone();
       toast('已复制备份码');
+    };
+    $('btnBkFile').onclick = () => {
+      downloadTextFile(backupFileName(), code);
+      markBackupDone();
+      toast('已下载备份文件，传到另一台电脑即可');
     };
   }
 
-  // 恢复：登录页使用，粘贴备份码后覆盖本机同名账号并自动登录
+  // 解析备份文本：支持 AM1. 备份码，也容忍把 JSON 直接存成文件的情况
+  function parseBackupText(txt) {
+    const t = String(txt || '').trim();
+    if (!t) return null;
+    try { return JSON.parse(b64d(t.replace(/^AM1\./, ''))); } catch (e) { }
+    try { return JSON.parse(t); } catch (e) { }
+    return null;
+  }
+
+  // 恢复：登录页使用，粘贴备份码或选择备份文件后恢复本机同名账号并自动登录
   function openAcctRestoreModal() {
     openModal('恢复账号', `
-      <p class="muted">粘贴从另一台设备导出的「备份码」（AM1. 开头），即可在这台设备上恢复该账号并自动登录。若本机已有同名账号，将被备份内容覆盖。</p>
+      <p class="muted">从另一台电脑导出「备份码」或「备份文件」后，在这里粘贴或选择文件，即可恢复该账号并自动登录。若本机已有同名账号，覆盖前会让你再确认一次。</p>
       <textarea id="rsCode" class="modal-textarea" placeholder="粘贴备份码…"></textarea>
+      <div class="modal-row"><input id="rsFile" class="input" type="file" accept=".txt,.json,text/plain"></div>
       <div class="modal-row"><button id="btnRsGo" class="btn btn-accent btn-block">恢复账号</button></div>
       <div id="rsStatus" class="modal-status"></div>`);
-    $('btnRsGo').onclick = () => {
+    let pendingRec = null; // 已解析、等待二次确认覆盖的记录
+    let fileText = '';
+    let src = 'paste';    // 最后一次输入来源：paste（粘贴框）/ file（文件）
+    const curText = () => (src === 'file' ? fileText : $('rsCode').value);
+    const doRestore = () => {
       const st = $('rsStatus');
-      const raw = $('rsCode').value.trim();
+      const rec = pendingRec || parseBackupText(curText());
+      if (!rec || typeof rec !== 'object' || !rec.account || typeof rec.account !== 'object'
+          || typeof rec.account.username !== 'string' || !/^[\w\u4e00-\u9fa5-]{2,16}$/.test(rec.account.username)
+          || typeof rec.account.salt !== 'string' || typeof rec.account.hash !== 'string') {
+        pendingRec = null;
+        st.textContent = '备份码无效：请完整粘贴备份码，或选择导出的备份文件';
+        return;
+      }
+      if (!Array.isArray(rec.schedule)) rec.schedule = [];
+      if (!rec.completions || typeof rec.completions !== 'object') rec.completions = {};
+      if (!Array.isArray(rec.checkedDays)) rec.checkedDays = [];
+      const key = stateKey(rec.account.username);
+      const existed = !!localStorage.getItem(key);
+      if (existed && !pendingRec) {
+        pendingRec = rec;
+        st.textContent = '⚠️ 本机已有同名账号「' + rec.account.username + '」，再点一次「恢复账号」将用备份内容覆盖它';
+        return;
+      }
       try {
-        const rec = JSON.parse(b64d(raw.replace(/^AM1\./, '')));
-        if (!rec || typeof rec !== 'object' || !rec.account || typeof rec.account !== 'object'
-            || typeof rec.account.username !== 'string' || !/^[\w\u4e00-\u9fa5-]{2,16}$/.test(rec.account.username)
-            || typeof rec.account.salt !== 'string' || typeof rec.account.hash !== 'string') {
-          st.textContent = '备份码无效，请检查是否完整复制'; return;
-        }
-        if (!Array.isArray(rec.schedule)) rec.schedule = [];
-        if (!rec.completions || typeof rec.completions !== 'object') rec.completions = {};
-        if (!Array.isArray(rec.checkedDays)) rec.checkedDays = [];
-        const key = stateKey(rec.account.username);
-        const existed = !!localStorage.getItem(key);
         localStorage.setItem(key, JSON.stringify(rec));
         login(rec.account.username);
         closeModal();
         toast(existed ? '账号已恢复（本机同名旧数据已被覆盖）' : '账号已恢复！');
       } catch (e) {
-        st.textContent = '备份码无效，请检查后重试';
+        st.textContent = '恢复失败，请重试';
       }
+    };
+    $('btnRsGo').onclick = doRestore;
+    $('rsCode').addEventListener('input', () => { src = 'paste'; pendingRec = null; });
+    $('rsFile').onchange = () => {
+      const f = $('rsFile').files && $('rsFile').files[0];
+      if (!f) return;
+      src = 'file';
+      fileText = '';
+      pendingRec = null;
+      $('rsStatus').textContent = '正在读取文件…';
+      const reader = new FileReader();
+      reader.onload = () => {
+        fileText = String(reader.result || '');
+        $('rsStatus').textContent = fileText.trim() ? '已读取文件，点「恢复账号」继续' : '文件是空的，请换一个';
+      };
+      reader.onerror = () => { $('rsStatus').textContent = '文件读取失败，请重试'; };
+      reader.readAsText(f);
     };
   }
 
