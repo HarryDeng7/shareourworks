@@ -4,6 +4,9 @@
 
   /* ---------- 小工具 ---------- */
   const $ = (id) => document.getElementById(id);
+  // 多语言：界面文案统一走 I18N（i18n.js），切换语言后重新渲染即可
+  const T = (k, v) => window.I18N.t(k, v);
+  const applyI18n = () => window.I18N.apply();
 
   function uid() {
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -169,8 +172,8 @@
     authMode = m;
     $('authTabLogin').classList.toggle('active', m === 'login');
     $('authTabReg').classList.toggle('active', m === 'reg');
-    $('authBtn').textContent = m === 'login' ? '登录' : '注册';
-    $('authPass').placeholder = m === 'login' ? '密码' : '密码（至少 4 位）';
+    $('authBtn').textContent = m === 'login' ? T('auth.login') : T('auth.reg');
+    $('authPass').placeholder = m === 'login' ? T('auth.passPh') : T('auth.passPhReg');
     $('authErr').textContent = '';
   }
 
@@ -178,10 +181,10 @@
     const u = $('authUser').value.trim().toLowerCase();
     const p = $('authPass').value;
     const err = $('authErr');
-    if (!/^[\w\u4e00-\u9fa5-]{2,16}$/.test(u)) { err.textContent = '用户名需为 2-16 位（字母/数字/中文/_-）'; return; }
+    if (!/^[\w\u4e00-\u9fa5-]{2,16}$/.test(u)) { err.textContent = T('err.userFormat'); return; }
     if (authMode === 'reg') {
-      if (p.length < 4) { err.textContent = '密码至少 4 位'; return; }
-      if (localStorage.getItem(stateKey(u))) { err.textContent = '用户名已存在，直接登录吧'; return; }
+      if (p.length < 4) { err.textContent = T('err.passShort'); return; }
+      if (localStorage.getItem(stateKey(u))) { err.textContent = T('err.userExists'); return; }
       const s = defaultState(u);
       s.account.salt = randomHex(8);
       s.account.hash = hashStr(s.account.salt + ':' + p);
@@ -191,10 +194,10 @@
       login(u);
     } else {
       const raw = localStorage.getItem(stateKey(u));
-      if (!raw) { err.textContent = '用户不存在：账号只保存在创建它的设备上。新设备请点下方「用备份码恢复账号」把账号搬过来；否则先注册一个'; return; }
+      if (!raw) { err.textContent = T('err.userNotFound'); return; }
       let s;
-      try { s = JSON.parse(raw); } catch (e) { err.textContent = '本地数据损坏'; return; }
-      if (!s.account || s.account.hash !== hashStr(s.account.salt + ':' + p)) { err.textContent = '密码不正确'; return; }
+      try { s = JSON.parse(raw); } catch (e) { err.textContent = T('err.dataBroken'); return; }
+      if (!s.account || s.account.hash !== hashStr(s.account.salt + ':' + p)) { err.textContent = T('err.passWrong'); return; }
       // 登录成功顺手补存明文（仅本地）：旧账号下次登录后，详情里也能直接看到密码
       if (!s.account.pwd) {
         s.account.pwd = p;
@@ -241,8 +244,8 @@
   }
 
   function mergeBuddySnapshot(d) {
-    if (!d || d.v !== 1 || !d.u) { toast('同步码无效'); return false; }
-    if (d.u === state.account.username) { toast('不能导入自己的同步码'); return false; }
+    if (!d || d.v !== 1 || !d.u) { toast(T('toast.invalidSyncCode')); return false; }
+    if (d.u === state.account.username) { toast(T('toast.selfSyncCode')); return false; }
     if (!state.buddy) state.buddy = { username: d.u };
     const b = state.buddy;
     if (b.username && b.username !== d.u) {
@@ -334,7 +337,7 @@
   function schedulePush() {
     clearTimeout(pushTimer);
     pushTimer = setTimeout(() => {
-      if (connOpen) { send({ t: 'snap', d: buildSnap() }); syncRecord(true, '进度已同步'); }
+      if (connOpen) { send({ t: 'snap', d: buildSnap() }); syncRecord(true, T('sync.reason.progress')); }
     }, 400);
   }
 
@@ -357,7 +360,7 @@
       st.fail++;
       st.lastFail = t;
     }
-    st.log.push({ t: t, ok: ok, w: why || (ok ? '成功' : '失败') });
+    st.log.push({ t: t, ok: ok, w: why || (ok ? T('sync.ok') : T('sync.fail')) });
     if (st.log.length > 30) st.log.shift();
     saveState();
   }
@@ -405,7 +408,7 @@
     let connTimer = setTimeout(() => {
       if (!state) return;
       if (conn !== currentConn || conn.open) return;
-      syncRecord(false, '连接建立超时');
+      syncRecord(false, T('sync.reason.handshakeTimeout'));
       try { conn.close(); } catch (e) { }
       connOpen = false; currentConn = null; connecting = false;
       renderPair();
@@ -420,7 +423,7 @@
       peerWatchdog = null;
       connOpen = true;
       connecting = false;
-      syncRecord(true, '连接成功');
+      syncRecord(true, T('sync.reason.connected'));
       if (!state.buddy) state.buddy = { username: '' };
       const isNewConn = !state.buddy.lastSeen || (Date.now() - state.buddy.lastSeen) > 60000;
       state.buddy.pairCode = code;
@@ -430,8 +433,8 @@
       sendSnapNow();
       saveState();
       renderAll();
-      if (isNewConn) toast('已与「' + (state.buddy.username || '好友') + '」同步成功 ⚡');
-      if (opts.onJoined) opts.onJoined(state.buddy.username || '好友');
+      if (isNewConn) toast(T('toast.syncOk', { u: state.buddy.username || T('common.buddy') }));
+      if (opts.onJoined) opts.onJoined(state.buddy.username || T('common.buddy'));
     });
 
     conn.on('data', (msg) => handleMsg(msg));
@@ -440,7 +443,7 @@
       if (!state) return;
       if (currentConn === conn) {
         connOpen = false; currentConn = null; connecting = false; renderPair();
-        syncRecord(false, '连接已断开');
+        syncRecord(false, T('sync.reason.closed'));
         // 只有加入方需要主动重拨；创建方保持监听即可，好友会自动拨过来
         if (role === 'join') scheduleReconnect();
       }
@@ -452,7 +455,7 @@
       // 好友不在线时拨号会报 peer-unavailable，属正常情况，稍后自动重试
       if (currentConn === conn) {
         connOpen = false; currentConn = null; connecting = false; renderPair();
-        syncRecord(false, (err && err.type === 'peer-unavailable') ? '好友不在线' : '连接失败');
+        syncRecord(false, (err && err.type === 'peer-unavailable') ? T('sync.reason.buddyOffline') : T('sync.reason.connFail'));
         if (role === 'join') scheduleReconnect(5000);
       }
     });
@@ -464,11 +467,11 @@
       if (!state.buddy) state.buddy = { username: msg.u };
       else if (state.buddy.username && state.buddy.username !== msg.u) {
         state.buddy = { username: msg.u, pairCode: state.buddy.pairCode, role: state.buddy.role };
-        toast('已与新的好友「' + msg.u + '」配对');
+        toast(T('toast.newBuddy', { u: msg.u }));
       } else {
         state.buddy.username = msg.u;
       }
-      if (msg.u === state.account.username) toast('注意：你和好友使用了相同的用户名');
+      if (msg.u === state.account.username) toast(T('toast.sameName'));
       state.buddy.lastSeen = Date.now();
       saveState();
       if (connOpen) send({ t: 'hello', u: state.account.username });
@@ -510,14 +513,14 @@
     peerWatchdog = setTimeout(() => {
       connecting = false;
       if (!window.Peer) {
-        syncRecord(false, '连不上同步服务器');
+        syncRecord(false, T('sync.reason.serverFail'));
         scheduleReconnect(5000);
       }
     }, 15000);
     loadPeerLib((ok) => {
       if (!ok) {
         if (!state || !state.buddy) return;
-        syncRecord(false, '无法加载同步库');
+        syncRecord(false, T('sync.reason.libFail'));
         scheduleReconnect(30000);
         return;
       }
@@ -534,7 +537,7 @@
           dbgPush('wd');
           connecting = false;
           if (peer === p) { try { p.destroy(); } catch (e) { } peer = null; }
-          syncRecord(false, '连接同步服务器超时');
+          syncRecord(false, T('sync.reason.serverTimeout'));
           scheduleReconnect(5000);
         }, 12000);
         p.on('open', () => {
@@ -553,7 +556,7 @@
         p.on('disconnected', () => {
           connecting = false;
           if (peer === p) { try { p.destroy(); } catch (e) { } peer = null; }
-          syncRecord(false, '与同步服务器断开');
+          syncRecord(false, T('sync.reason.serverDown'));
           scheduleReconnect(5000);
         });
         p.on('error', (err) => {
@@ -566,14 +569,14 @@
             scheduleReconnect();
           } else if (et === 'peer-unavailable') {
             // 好友不在线：记一次失败（静默不提示），稍后自动重拨
-            syncRecord(false, '好友不在线');
+            syncRecord(false, T('sync.reason.buddyOffline'));
             scheduleReconnect();
           } else if (et === 'network' || et === 'server-error' || et === 'socket-error' || et === 'socket-closed') {
             if (peer === p) { try { p.destroy(); } catch (e) { } peer = null; }
-            syncRecord(false, '网络错误');
+            syncRecord(false, T('sync.reason.net'));
             scheduleReconnect();
           } else if (et === 'browser-incompatible') {
-            syncRecord(false, '浏览器不支持实时同步');
+            syncRecord(false, T('sync.reason.browser'));
           }
         });
       } catch (e) {
@@ -636,7 +639,7 @@
           const item = el.closest('.item');
           if (item) item.classList.add('miss');
           const due = el.closest('.item-due');
-          if (due) { due.classList.add('miss'); due.textContent = '超时未完成'; }
+          if (due) { due.classList.add('miss'); due.textContent = T('list.missedShort'); }
           return;
         }
         el.textContent = fmtCd(left);
@@ -650,16 +653,16 @@
     const done = new Set((state.completions[t] || []));
     const list = $('myList');
     if (!state.schedule.length) {
-      list.innerHTML = '<div class="item-empty">还没有安排，先添加一项吧 📝</div>';
+      list.innerHTML = '<div class="item-empty">' + escapeHtml(T('list.emptyMine')) + '</div>';
     } else {
       list.innerHTML = state.schedule.map((it) => `
         <div class="item ${done.has(it.id) ? 'done' : ''} ${(!done.has(it.id) && it.missed) ? 'miss' : ''}">
           <button class="item-check ${done.has(it.id) ? 'on' : ''} ${(!done.has(it.id) && it.missed) ? 'locked' : ''}" data-id="${it.id}">✓</button>
           <input class="item-text" value="${escapeHtml(it.text)}" data-id="${it.id}" maxlength="60" ${it.missed ? 'readonly' : ''}>
           ${it.time ? `<span class="item-time">${escapeHtml(it.time)}</span>` : ''}
-          ${(!done.has(it.id) && it.dueAt) ? `<span class="item-due ${it.missed ? 'miss' : ''}">${it.missed ? '⏰ 超时未完成' : '⏳ 剩 <b data-cd="' + it.id + '">' + fmtCd(it.dueAt - Date.now()) + '</b>'}</span>` : ''}
-          <button class="item-edit" data-id="${it.id}" title="编辑">✏️</button>
-          <button class="item-del" data-id="${it.id}" title="删除">✕</button>
+          ${(!done.has(it.id) && it.dueAt) ? `<span class="item-due ${it.missed ? 'miss' : ''}">${it.missed ? T('list.missed') : T('list.leftStart') + '<b data-cd="' + it.id + '">' + fmtCd(it.dueAt - Date.now()) + '</b>'}</span>` : ''}
+          <button class="item-edit" data-id="${it.id}" title="${escapeHtml(T('list.edit'))}">✏️</button>
+          <button class="item-del" data-id="${it.id}" title="${escapeHtml(T('list.del'))}">✕</button>
         </div>`).join('');
     }
     const total = state.schedule.length;
@@ -685,8 +688,10 @@
     });
 
     const d = new Date();
-    const weeks = ['日', '一', '二', '三', '四', '五', '六'];
-    $('todayLabel').textContent = d.getFullYear() + '年' + (d.getMonth() + 1) + '月' + d.getDate() + '日 周' + weeks[d.getDay()];
+    const weeks = T('hist.weekdays').split(',');
+    $('todayLabel').textContent = T('today.label', {
+      y: d.getFullYear(), m: d.getMonth() + 1, d: d.getDate(), w: weeks[d.getDay()],
+    });
   }
   function addItem() {
     const text = $('newItemText').value.trim();
@@ -729,7 +734,7 @@
 
   function toggleItem(id) {
     const itm = state.schedule.find((i) => i.id === id);
-    if (itm && itm.missed) { toast('⏰ 该任务已超时，算未完成，不能勾选'); return; }
+    if (itm && itm.missed) { toast(T('toast.missedLock')); return; }
     const t = todayStr();
     if (!state.completions[t]) state.completions[t] = [];
     const arr = state.completions[t];
@@ -754,10 +759,10 @@
     const list = $('buddyList');
     const statusEl = $('buddyStatus');
     if (!b || !(b.schedule || []).length) {
-      list.innerHTML = '<div class="item-empty">' + (b ? '好友还没有添加安排' : '配对后即可看到好友的安排') + '</div>';
+      list.innerHTML = '<div class="item-empty">' + escapeHtml(b ? T('list.emptyBuddy') : T('list.noPair')) + '</div>';
       $('buddyBar').style.width = '0%';
       $('buddyProgText').textContent = '0/0';
-      statusEl.textContent = b ? (buddyOnline() ? '在线' : '未同步') : '';
+      statusEl.textContent = b ? (buddyOnline() ? T('buddy.online') : T('buddy.offline')) : '';
       return;
     }
     const t = todayStr();
@@ -771,7 +776,7 @@
         <span class="item-check ${done.has(it.id) ? 'on' : ''}">✓</span>
         <span class="item-text">${escapeHtml(it.text)}</span>
         ${it.time ? `<span class="item-time">${escapeHtml(it.time)}</span>` : ''}
-        ${budDue ? `<span class="item-due ${budMissed ? 'miss' : ''}">${budMissed ? '⏰ 超时未完成' : '⏳ 剩 <b data-cd="' + it.id + '">' + fmtCd(it.dueAt - nowT) + '</b>'}</span>` : ''}
+        ${budDue ? `<span class="item-due ${budMissed ? 'miss' : ''}">${budMissed ? T('list.missed') : T('list.leftStart') + '<b data-cd="' + it.id + '">' + fmtCd(it.dueAt - nowT) + '</b>'}</span>` : ''}
       </div>`;
     }).join('');
     const total = b.schedule.length;
@@ -779,8 +784,10 @@
     $('buddyBar').style.width = (cnt / total * 100).toFixed(1) + '%';
     $('buddyProgText').textContent = cnt + '/' + total;
     statusEl.textContent = buddyOnline()
-      ? '在线'
-      : (b.lastSeen ? '上次同步 ' + new Date(b.lastSeen).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : '未同步');
+      ? T('buddy.online')
+      : (b.lastSeen
+        ? T('buddy.lastSync', { t: new Date(b.lastSeen).toLocaleTimeString(I18N.locale(), { hour: '2-digit', minute: '2-digit' }) })
+        : T('buddy.offline'));
   }
 
   /* ---------- 打卡 ---------- */
@@ -809,20 +816,20 @@
     let html = '';
     if (cs.done) {
       html = `
-        <div class="checked-banner">✓ 今日已打卡成功！获得 1 次敲击机会</div>
-        <div style="margin-top:12px"><button id="btnGoForge" class="btn btn-accent btn-checkin">去石匠工坊敲石头 ⛏️</button></div>`;
+        <div class="checked-banner">${escapeHtml(T('checkin.done'))}</div>
+        <div style="margin-top:12px"><button id="btnGoForge" class="btn btn-accent btn-checkin">${escapeHtml(T('checkin.goForge'))}</button></div>`;
     } else {
       let status = '';
       let enabled = false;
-      if (!cs.hasBuddy) status = '先和好友配对，才能一起打卡（双方都完成全部安排后，今天才能打卡）';
-      else if (!cs.myDone && !cs.bDone) status = '你和好友都还有未完成的安排，继续加油 💪';
-      else if (!cs.myDone) status = '你还差 ' + cs.myLeft + ' 项安排未完成' + (cs.myMissed ? '（含 ' + cs.myMissed + ' 项已超时，需删除）' : '');
-      else if (!cs.bDone) status = '好友还差 ' + cs.bLeft + ' 项安排未完成，等 TA 完成吧…';
-      else { status = '你和好友都完成了今日安排！'; enabled = true; }
-      if (cs.bStale) status += '<div class="muted" style="margin-top:6px">⚠️ 好友数据可能不是最新，建议让 TA 导出同步码发给你</div>';
+      if (!cs.hasBuddy) status = T('checkin.needBuddy');
+      else if (!cs.myDone && !cs.bDone) status = T('checkin.bothLeft');
+      else if (!cs.myDone) status = T('checkin.myLeft', { n: cs.myLeft }) + (cs.myMissed ? T('checkin.myMissed', { n: cs.myMissed }) : '');
+      else if (!cs.bDone) status = T('checkin.buddyLeft', { n: cs.bLeft });
+      else { status = T('checkin.bothDone'); enabled = true; }
+      if (cs.bStale) status += '<div class="muted" style="margin-top:6px">' + escapeHtml(T('checkin.stale')) + '</div>';
       html = `
         <div class="checkin-status">${status}</div>
-        <button id="btnCheckin" class="btn btn-checkin ${enabled ? 'btn-accent' : ''}" ${enabled ? '' : 'disabled'}>${enabled ? '双方完成！打卡 ⛏️' : '打卡'}</button>`;
+        <button id="btnCheckin" class="btn btn-checkin ${enabled ? 'btn-accent' : ''}" ${enabled ? '' : 'disabled'}>${enabled ? T('checkin.btnReady') : T('checkin.btn')}</button>`;
     }
     panel.innerHTML = html;
     const btn = $('btnCheckin');
@@ -843,31 +850,156 @@
     renderAll();
     confetti();
     Forge.chime();
-    toast('🎉 打卡成功！获得 1 次敲击机会，快去敲石头吧！', 3400);
+    toast(T('toast.checkinOk'), 3400);
   }
   /* ---------- 石匠工坊 ---------- */
+  // 桌上的材料按「你和好友合计的敲击数」升级：20 铁锭 / 100 金锭 / 150 钻石
+  function combinedStrikes() {
+    const b = state.buddy;
+    return state.strikes + (b ? (b.strikes || 0) : 0);
+  }
+
   function renderForgeStats() {
     const b = state.buddy;
-    const total = state.strikes + (b ? (b.strikes || 0) : 0);
+    const total = combinedStrikes();
+    const myDays = state.checkedDays.length;
     $('statTotal').textContent = total;
     $('statMine').textContent = state.strikes;
     $('statBuddy').textContent = b ? (b.strikes || 0) : 0;
     $('statCredit').textContent = state.credit;
-    $('statDays').textContent = state.checkedDays.length;
-    Forge.update({ total: total });
+    $('statDays').textContent = myDays;
+    Forge.update({ total: total, myDays: myDays });
+    Forge.setEngrave(state.carveImg || '');
+    renderForgeHint(total);
+    renderCarveTools(myDays);
+    renderForgeLegend();
+  }
+
+  // 提示语跟着桌上材料和剩余机会走
+  function renderForgeHint(total) {
+    const el = $('forgeHint');
+    if (!el) return;
+    const noCredit = state.credit <= 0;
+    el.textContent = noCredit
+      ? T('forge.hintNoCredit')
+      : T('forge.hint', { item: Forge.materialName(total) });
+    el.classList.toggle('warn', noCredit);
+  }
+
+  // 图例：材料看「两人合计敲击数」，雕刻阶段看「你自己的打卡天数」
+  function renderForgeLegend() {
+    const el = $('carveLegend');
+    if (!el) return;
+    const carve = Forge.STAGES.map((s) => T(s[1]) + '(' + s[0] + ')').join(' → ');
+    const mats = Forge.MATERIALS.map((m) => T(m.key) + '(' + m.at + ')').join(' → ');
+    el.textContent = '';
+    [T('forge.legendCarve', { ladder: carve }), T('forge.legendMat', { ladder: mats })].forEach((line) => {
+      const div = document.createElement('div');
+      div.textContent = line;
+      el.appendChild(div);
+    });
+  }
+
+  // 上传图片：雕刻到「打形」（打卡 25 天）才解锁
+  function renderCarveTools(myDays) {
+    const hint = $('carveToolsHint');
+    const btns = $('carveToolsBtns');
+    if (!hint || !btns) return;
+    const unlocked = myDays >= Forge.UNLOCK_DAYS;
+    btns.classList.toggle('hidden', !unlocked);
+    if (!unlocked) {
+      hint.textContent = T('forge.locked', {
+        n: Forge.UNLOCK_DAYS,
+        stage: T('forge.stage2'),
+        left: Math.max(0, Forge.UNLOCK_DAYS - myDays),
+      });
+      return;
+    }
+    hint.textContent = state.carveImg ? T('forge.unlockedImg') : T('forge.unlockedNoImg');
+  }
+
+  function pickCarveImage() {
+    if (state.checkedDays.length < Forge.UNLOCK_DAYS) {
+      toast(T('toast.carveImgLocked', { n: Forge.UNLOCK_DAYS }));
+      return;
+    }
+    $('carveImgFile').click();
+  }
+
+  function clearCarveImage() {
+    if (!state.carveImg) return;
+    delete state.carveImg;
+    saveState();
+    Forge.setEngrave('');
+    renderForgeStats();
+    toast(T('toast.carveImgCleared'));
+  }
+
+  // 读图 → 等比压到 320px 存成 dataURL（只存本机；同步快照里不带它）
+  function onCarveFile() {
+    const input = $('carveImgFile');
+    const f = input.files && input.files[0];
+    input.value = '';
+    if (!f) return;
+    if (state.checkedDays.length < Forge.UNLOCK_DAYS) {
+      toast(T('toast.carveImgLocked', { n: Forge.UNLOCK_DAYS }));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const max = 320;
+          const iw = img.width || max;
+          const ih = img.height || max;
+          const scale = Math.min(1, max / Math.max(iw, ih));
+          const w = Math.max(1, Math.round(iw * scale));
+          const h = Math.max(1, Math.round(ih * scale));
+          const cv = document.createElement('canvas');
+          cv.width = w;
+          cv.height = h;
+          const cx = cv.getContext('2d');
+          cx.fillStyle = '#243249';
+          cx.fillRect(0, 0, w, h);
+          cx.drawImage(img, 0, 0, w, h);
+          state.carveImg = cv.toDataURL('image/jpeg', 0.82);
+          saveState();
+          Forge.setEngrave(state.carveImg);
+          renderForgeStats();
+          toast(T('toast.carveImgSaved'));
+        } catch (e) {
+          toast(T('toast.carveImgFail'));
+        }
+      };
+      img.onerror = () => toast(T('toast.carveImgFail'));
+      img.src = String(reader.result || '');
+    };
+    reader.onerror = () => toast(T('toast.carveImgFail'));
+    reader.readAsDataURL(f);
   }
 
   function onStoneClick() {
-    if (state.credit > 0) {
-      state.credit -= 1;
-      state.strikes += 1;
-      state.strikesUpdatedAt = Date.now();
-      saveState();
-      schedulePush();
-      renderForgeStats();
-      Forge.strike();
-    } else {
-      toast('还没有敲击机会 —— 完成安排并双方打卡后就能敲石头啦 ⛏️');
+    if (state.credit <= 0) {
+      toast(T('toast.noCredit'));
+      return;
+    }
+    const before = Forge.materialId(combinedStrikes());
+    state.credit -= 1;
+    state.strikes += 1;
+    state.strikesUpdatedAt = Date.now();
+    saveState();
+    schedulePush();
+    renderForgeStats();
+    Forge.strike();
+    // 这一下刚好把材料敲升级了：等锤子落下时来一波庆祝
+    const after = Forge.materialId(combinedStrikes());
+    if (after !== before) {
+      setTimeout(() => {
+        confetti();
+        Forge.chime();
+        toast(T('forge.tierUp', { item: Forge.materialName(combinedStrikes()) }), 3200);
+      }, 380);
     }
   }
 
@@ -878,11 +1010,11 @@
     const m = ((now.getMonth() + calOffset) % 12 + 12) % 12;
     const first = new Date(y, m, 1);
     const daysInMonth = new Date(y, m + 1, 0).getDate();
-    $('calTitle').textContent = y + '年' + (m + 1) + '月';
+    $('calTitle').textContent = T('hist.month', { y: y, m: m + 1 });
     const grid = $('calGrid');
     grid.innerHTML = '';
-    ['日', '一', '二', '三', '四', '五', '六'].forEach((d) => {
-      grid.insertAdjacentHTML('beforeend', '<div class="cal-week">' + d + '</div>');
+    T('hist.weekdays').split(',').forEach((d) => {
+      grid.insertAdjacentHTML('beforeend', '<div class="cal-week">' + escapeHtml(d) + '</div>');
     });
     const checked = new Set(state.checkedDays);
     for (let i = 0; i < first.getDay(); i++) grid.insertAdjacentHTML('beforeend', '<div class="cal-day empty"></div>');
@@ -901,18 +1033,22 @@
     const b = state.buddy;
     const total = state.strikes + (b ? (b.strikes || 0) : 0);
     $('histStats').innerHTML = `
-      <div class="hist-stat"><span>${state.checkedDays.length}</span><label>累计打卡（天）</label></div>
-      <div class="hist-stat"><span>${streak}</span><label>连续打卡（天）</label></div>
-      <div class="hist-stat"><span>${total}</span><label>共敲击（下）</label></div>`;
+      <div class="hist-stat"><span>${state.checkedDays.length}</span><label>${escapeHtml(T('hist.checkedDays'))}</label></div>
+      <div class="hist-stat"><span>${streak}</span><label>${escapeHtml(T('hist.streak'))}</label></div>
+      <div class="hist-stat"><span>${total}</span><label>${escapeHtml(T('hist.totalHits'))}</label></div>`;
     $('calNext').disabled = calOffset >= 0;
   }
 
   /* ---------- 同步记录弹窗 ---------- */
   function fmtClock(ts) {
-    if (!ts) return '从未';
+    if (!ts) return T('common.never');
     const d = new Date(ts);
     const p = (n) => String(n).padStart(2, '0');
-    return (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+    return T('hist.clock', {
+      m: d.getMonth() + 1,
+      d: d.getDate(),
+      t: p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds()),
+    });
   }
   function openSyncStatModal() {
     const st = state.syncStat || { ok: 0, fail: 0, lastOk: 0, lastFail: 0, log: [] };
@@ -920,22 +1056,34 @@
     const lines = st.log.map((e) => {
       const d = new Date(e.t);
       return '<div class="sync-line ' + (e.ok ? 'ok' : 'bad') + '">' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds())
-        + '  ' + (e.ok ? '✓ 成功' : '✗ 失败') + (e.w ? ' · ' + escapeHtml(e.w) : '') + '</div>';
-    }).join('') || '<div class="muted" style="text-align:center;padding:8px 0">还没有同步记录</div>';
-    openModal('同步记录', `
-      <p class="muted">实时同步结果记录（同步失败不会弹提示，会自动重试）：</p>
+        + '  ' + (e.ok ? '✓ ' + T('sync.ok') : '✗ ' + T('sync.fail')) + (e.w ? ' · ' + escapeHtml(e.w) : '') + '</div>';
+    }).join('') || '<div class="muted" style="text-align:center;padding:8px 0">' + escapeHtml(T('syncModal.empty')) + '</div>';
+    openModal(T('syncModal.title'), `
+      <p class="muted">${escapeHtml(T('syncModal.intro'))}</p>
       <div class="sync-counts">
-        <div class="sync-num ok"><b>${st.ok}</b><span>同步成功（次）</span></div>
-        <div class="sync-num bad"><b>${st.fail}</b><span>同步失败（次）</span></div>
+        <div class="sync-num ok"><b>${st.ok}</b><span>${escapeHtml(T('syncModal.ok'))}</span></div>
+        <div class="sync-num bad"><b>${st.fail}</b><span>${escapeHtml(T('syncModal.fail'))}</span></div>
       </div>
-      <div class="muted" style="margin-top:10px">上次成功：${fmtClock(st.lastOk)} · 上次失败：${fmtClock(st.lastFail)}</div>
+      <div class="muted" style="margin-top:10px">${escapeHtml(T('syncModal.times', { ok: fmtClock(st.lastOk), fail: fmtClock(st.lastFail) }))}</div>
       <div class="sync-list">${lines}</div>
-      <div class="modal-row"><button id="btnSyncReset" class="btn btn-ghost btn-sm">清零记录</button></div>`);
+      <div class="modal-row"><button id="btnSyncReset" class="btn btn-ghost btn-sm">${escapeHtml(T('syncModal.clear'))}</button></div>`);
     $('btnSyncReset').onclick = () => {
       state.syncStat = { ok: 0, fail: 0, lastOk: 0, lastFail: 0, log: [] };
       saveState();
       openSyncStatModal();
     };
+  }
+
+  /* ---------- 语言切换（用户详情里点中文 / English） ---------- */
+  function switchLang(l) {
+    if (l === I18N.lang) return;
+    I18N.set(l);
+    if (state) { state.lang = l; saveState(); }
+    applyI18n();
+    setAuthMode(authMode);
+    if (state) renderAll();
+    openAccountModal();
+    toast(T(l === 'en' ? 'acct.langEn' : 'acct.langZh'));
   }
 
   /* ---------- 用户详情弹窗 ---------- */
@@ -944,27 +1092,34 @@
     const legacy = !acc.pwd;
     const pwdHtml = acc.pwd
       ? '<code class="acct-pwd" id="acctPwdTxt">' + escapeHtml(acc.pwd) + '</code>'
-      : '<span class="muted" id="acctPwdTxt">旧账号未保存密码，输入当前密码点「显示密码」即可直接显示</span>';
+      : '<span class="muted" id="acctPwdTxt">' + escapeHtml(T('acct.pwdLegacy')) + '</span>';
+    const lang = I18N.lang;
     const legacyHtml = legacy ? `
       <div class="acct-verify">
-        <input id="acctShowOld" class="input" type="password" placeholder="输入当前密码" autocomplete="current-password">
-        <button id="btnAcctShow" class="btn btn-accent btn-sm" style="flex:none">🔓 显示密码</button>
+        <input id="acctShowOld" class="input" type="password" placeholder="${escapeHtml(T('acct.pwdPh'))}" autocomplete="current-password">
+        <button id="btnAcctShow" class="btn btn-accent btn-sm" style="flex:none">${escapeHtml(T('acct.showPwd'))}</button>
       </div>
       <div id="acctShowErr" class="acct-err"></div>` : '';
-    openModal('用户详情', `
-      <div class="acct-row"><span class="muted">用户名</span><b>${escapeHtml(acc.username)}</b></div>
-      <div class="acct-row"><span class="muted">密码</span>${pwdHtml}</div>
+    openModal(T('acct.title'), `
+      <div class="acct-row"><span class="muted">${escapeHtml(T('acct.username'))}</span><b>${escapeHtml(acc.username)}</b></div>
+      <div class="acct-row"><span class="muted">${escapeHtml(T('acct.password'))}</span>${pwdHtml}</div>
+      <div class="acct-row"><span class="muted">${escapeHtml(T('acct.lang'))}</span>
+        <div class="lang-switch">
+          <button id="langZh" class="btn btn-sm ${lang === 'zh' ? 'active' : ''}">中文</button>
+          <button id="langEn" class="btn btn-sm ${lang === 'en' ? 'active' : ''}">English</button>
+        </div>
+      </div>
       ${legacyHtml}
       <div class="acct-sep"></div>
-      <div class="muted" style="margin-bottom:6px">🔑 修改密码（需验证当前密码，改完立即生效）</div>
-      <input id="acctOld" class="input" type="password" placeholder="当前密码" autocomplete="current-password">
-      <input id="acctNew" class="input" type="password" placeholder="新密码（至少 4 位）" autocomplete="new-password">
+      <div class="muted" style="margin-bottom:6px">${escapeHtml(T('acct.chgTitle'))}</div>
+      <input id="acctOld" class="input" type="password" placeholder="${escapeHtml(T('acct.oldPh'))}" autocomplete="current-password">
+      <input id="acctNew" class="input" type="password" placeholder="${escapeHtml(T('acct.newPh'))}" autocomplete="new-password">
       <div id="acctErr" class="acct-err"></div>
-      <div class="modal-row" style="flex-direction:row;justify-content:flex-end"><button id="btnAcctChg" class="btn btn-accent btn-sm">保存新密码</button></div>
+      <div class="modal-row" style="flex-direction:row;justify-content:flex-end"><button id="btnAcctChg" class="btn btn-accent btn-sm">${escapeHtml(T('acct.saveBtn'))}</button></div>
       <div class="acct-sep" style="margin-top:14px"></div>
-      <p class="muted" style="font-size:12px;margin-bottom:8px">📦 换电脑？导出备份码或下载备份文件，到另一台电脑的登录页点「用备份码恢复账号」。请以最近使用的那台电脑为准。</p>
-      <div class="acct-row"><span class="muted">上次备份</span><span id="acctBackupTime" class="muted"></span></div>
-      <div class="modal-row" style="flex-direction:row;justify-content:flex-end"><button id="btnAcctBackup" class="btn btn-sm">备份账号</button></div>`);
+      <p class="muted" style="font-size:12px;margin-bottom:8px">${escapeHtml(T('acct.backupHint'))}</p>
+      <div class="acct-row"><span class="muted">${escapeHtml(T('acct.lastBackup'))}</span><span id="acctBackupTime" class="muted"></span></div>
+      <div class="modal-row" style="flex-direction:row;justify-content:flex-end"><button id="btnAcctBackup" class="btn btn-sm">${escapeHtml(T('acct.backupBtn'))}</button></div>`);
     $('btnAcctChg').onclick = saveNewPwd;
     $('acctNew').addEventListener('keydown', (e) => { if (e.key === 'Enter') saveNewPwd(); });
     const showBtn = $('btnAcctShow');
@@ -973,6 +1128,8 @@
       $('acctShowOld').addEventListener('keydown', (e) => { if (e.key === 'Enter') showLegacyPwd(); });
     }
     $('btnAcctBackup').onclick = openAcctBackupModal;
+    $('langZh').onclick = () => switchLang('zh');
+    $('langEn').onclick = () => switchLang('en');
     renderBackupTime();
   }
 
@@ -981,7 +1138,7 @@
     const el = $('acctBackupTime');
     if (!el) return;
     const t = state.lastBackupAt;
-    if (!t) { el.textContent = '未备份过，换电脑前先备份一次'; return; }
+    if (!t) { el.textContent = T('acct.neverBackup'); return; }
     const d = new Date(t);
     const p = (n) => String(n).padStart(2, '0');
     el.textContent = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
@@ -992,10 +1149,10 @@
     const acc = state.account;
     const err = $('acctShowErr');
     const v = $('acctShowOld').value;
-    if (!v || acc.hash !== hashStr(acc.salt + ':' + v)) { err.textContent = '当前密码不正确'; return; }
+    if (!v || acc.hash !== hashStr(acc.salt + ':' + v)) { err.textContent = T('err.passWrongNow'); return; }
     acc.pwd = v;
     saveState();
-    toast('🔑 密码已显示，下次打开「用户详情」直接可见');
+    toast(T('toast.pwdShown'));
     openAccountModal();
   }
 
@@ -1004,13 +1161,13 @@
     const err = $('acctErr');
     const oldP = $('acctOld').value;
     const newP = $('acctNew').value;
-    if (!oldP || acc.hash !== hashStr(acc.salt + ':' + oldP)) { err.textContent = '当前密码不正确'; return; }
-    if (newP.length < 4) { err.textContent = '新密码至少 4 位'; return; }
+    if (!oldP || acc.hash !== hashStr(acc.salt + ':' + oldP)) { err.textContent = T('err.passWrongNow'); return; }
+    if (newP.length < 4) { err.textContent = T('err.newPassShort'); return; }
     acc.salt = randomHex(8);
     acc.hash = hashStr(acc.salt + ':' + newP);
     acc.pwd = newP;
     saveState();
-    toast(newP === oldP ? '🔑 已保存，以后打开「用户详情」即可直接看到密码' : '🔑 密码已修改并保存');
+    toast(newP === oldP ? T('toast.pwdSaved') : T('toast.pwdChanged'));
     openAccountModal();
   }
 
@@ -1050,23 +1207,23 @@
 
   function openAcctBackupModal() {
     const code = buildBackupCode();
-    openModal('账号备份', `
-      <p class="muted">换电脑用同一账号：把备份码或备份文件拿到另一台电脑，在它的登录页点「用备份码恢复账号」。备份包含账号密码与全部数据，请只发给自己、不要外传。</p>
+    openModal(T('bk.title'), `
+      <p class="muted">${escapeHtml(T('bk.intro'))}</p>
       <textarea id="bkCode" class="modal-textarea" readonly>${escapeHtml(code)}</textarea>
-      <div class="modal-row"><button id="btnBkCopy" class="btn btn-accent btn-block">复制备份码</button></div>
-      <div class="modal-row"><button id="btnBkFile" class="btn btn-block">下载备份文件（推荐跨电脑传输）</button></div>`);
+      <div class="modal-row"><button id="btnBkCopy" class="btn btn-accent btn-block">${escapeHtml(T('bk.copy'))}</button></div>
+      <div class="modal-row"><button id="btnBkFile" class="btn btn-block">${escapeHtml(T('bk.download'))}</button></div>`);
     $('btnBkCopy').onclick = () => {
       const ta = $('bkCode');
       ta.select();
       try { document.execCommand('copy'); } catch (e) { }
       if (navigator.clipboard) navigator.clipboard.writeText(code).catch(() => { });
       markBackupDone();
-      toast('已复制备份码');
+      toast(T('toast.backupCopied'));
     };
     $('btnBkFile').onclick = () => {
       downloadTextFile(backupFileName(), code);
       markBackupDone();
-      toast('已下载备份文件，传到另一台电脑即可');
+      toast(T('toast.backupDownloaded'));
     };
   }
 
@@ -1081,11 +1238,11 @@
 
   // 恢复：登录页使用，粘贴备份码或选择备份文件后恢复本机同名账号并自动登录
   function openAcctRestoreModal() {
-    openModal('恢复账号', `
-      <p class="muted">从另一台电脑导出「备份码」或「备份文件」后，在这里粘贴或选择文件，即可恢复该账号并自动登录。若本机已有同名账号，覆盖前会让你再确认一次。</p>
-      <textarea id="rsCode" class="modal-textarea" placeholder="粘贴备份码…"></textarea>
+    openModal(T('rs.title'), `
+      <p class="muted">${escapeHtml(T('rs.intro'))}</p>
+      <textarea id="rsCode" class="modal-textarea" placeholder="${escapeHtml(T('rs.codePh'))}"></textarea>
       <div class="modal-row"><input id="rsFile" class="input" type="file" accept=".txt,.json,text/plain"></div>
-      <div class="modal-row"><button id="btnRsGo" class="btn btn-accent btn-block">恢复账号</button></div>
+      <div class="modal-row"><button id="btnRsGo" class="btn btn-accent btn-block">${escapeHtml(T('rs.go'))}</button></div>
       <div id="rsStatus" class="modal-status"></div>`);
     let pendingRec = null; // 已解析、等待二次确认覆盖的记录
     let fileText = '';
@@ -1098,7 +1255,7 @@
           || typeof rec.account.username !== 'string' || !/^[\w\u4e00-\u9fa5-]{2,16}$/.test(rec.account.username)
           || typeof rec.account.salt !== 'string' || typeof rec.account.hash !== 'string') {
         pendingRec = null;
-        st.textContent = '备份码无效：请完整粘贴备份码，或选择导出的备份文件';
+        st.textContent = T('rs.invalid');
         return;
       }
       if (!Array.isArray(rec.schedule)) rec.schedule = [];
@@ -1108,16 +1265,16 @@
       const existed = !!localStorage.getItem(key);
       if (existed && !pendingRec) {
         pendingRec = rec;
-        st.textContent = '⚠️ 本机已有同名账号「' + rec.account.username + '」，再点一次「恢复账号」将用备份内容覆盖它';
+        st.textContent = T('rs.existsWarn', { u: rec.account.username });
         return;
       }
       try {
         localStorage.setItem(key, JSON.stringify(rec));
         login(rec.account.username);
         closeModal();
-        toast(existed ? '账号已恢复（本机同名旧数据已被覆盖）' : '账号已恢复！');
+        toast(existed ? T('toast.restoredOverwrite') : T('toast.restored'));
       } catch (e) {
-        st.textContent = '恢复失败，请重试';
+        st.textContent = T('rs.fail');
       }
     };
     $('btnRsGo').onclick = doRestore;
@@ -1128,13 +1285,13 @@
       src = 'file';
       fileText = '';
       pendingRec = null;
-      $('rsStatus').textContent = '正在读取文件…';
+      $('rsStatus').textContent = T('rs.reading');
       const reader = new FileReader();
       reader.onload = () => {
         fileText = String(reader.result || '');
-        $('rsStatus').textContent = fileText.trim() ? '已读取文件，点「恢复账号」继续' : '文件是空的，请换一个';
+        $('rsStatus').textContent = fileText.trim() ? T('rs.read') : T('rs.empty');
       };
-      reader.onerror = () => { $('rsStatus').textContent = '文件读取失败，请重试'; };
+      reader.onerror = () => { $('rsStatus').textContent = T('rs.readFail'); };
       reader.readAsText(f);
     };
   }
@@ -1147,19 +1304,19 @@
       card.innerHTML = `
         <div class="pair-row">
           <div>
-            <strong>还没有配对</strong>
-            <div class="muted">生成配对码发给好友（好友随时可加入），或输入好友的配对码</div>
+            <strong>${escapeHtml(T('pair.none'))}</strong>
+            <div class="muted">${escapeHtml(T('pair.noneHint'))}</div>
           </div>
           <div class="pair-actions">
-            <button id="btnCreatePair" class="btn btn-accent">创建配对码</button>
-            <button id="btnJoinPair" class="btn">输入配对码</button>
+            <button id="btnCreatePair" class="btn btn-accent">${escapeHtml(T('pair.create'))}</button>
+            <button id="btnJoinPair" class="btn">${escapeHtml(T('pair.join'))}</button>
           </div>
         </div>
         <div class="pair-row" style="margin-top:12px;border-top:1px dashed var(--border);padding-top:12px">
-          <div class="muted">好友不在线？用同步码离线交换进度</div>
+          <div class="muted">${escapeHtml(T('pair.offlineHint'))}</div>
           <div class="pair-actions">
-            <button id="btnExport" class="btn btn-sm">导出同步码</button>
-            <button id="btnImport" class="btn btn-sm">导入同步码</button>
+            <button id="btnExport" class="btn btn-sm">${escapeHtml(T('pair.export'))}</button>
+            <button id="btnImport" class="btn btn-sm">${escapeHtml(T('pair.import'))}</button>
           </div>
         </div>`;
       $('btnCreatePair').onclick = openCreateModal;
@@ -1168,21 +1325,21 @@
       $('btnImport').onclick = openImportModal;
     } else {
       const online = buddyOnline();
-      const manualBtn = connOpen ? '' : '<button id="btnManual" class="btn btn-sm btn-accent">手动直连</button>';
+      const manualBtn = connOpen ? '' : '<button id="btnManual" class="btn btn-sm btn-accent">' + escapeHtml(T('pair.manual')) + '</button>';
       const since = b.lastSeen
-        ? new Date(b.lastSeen).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
-        : '从未';
+        ? new Date(b.lastSeen).toLocaleTimeString(I18N.locale(), { hour: '2-digit', minute: '2-digit' })
+        : T('common.never');
       card.innerHTML = `
         <div class="pair-row">
           <div>
-            <strong>好友：${escapeHtml(b.username || '未同步')}</strong>
-            <div class="muted"><span class="buddy-dot ${online ? 'dot-on' : 'dot-off'}"></span>${online ? '在线 · 实时同步中' : (b.username ? '离线 · 配对码 ' + escapeHtml(b.pairCode || '') + ' · 上次同步 ' + since + ' · 每 5 秒自动重试' : '已配对 · 配对码 ' + escapeHtml(b.pairCode || '') + ' · 等好友上线（每 5 秒自动重试）')}</div>
+            <strong>${escapeHtml(T('pair.buddyName', { u: b.username || T('pair.notSynced') }))}</strong>
+            <div class="muted"><span class="buddy-dot ${online ? 'dot-on' : 'dot-off'}"></span>${online ? escapeHtml(T('pair.online')) : (b.username ? escapeHtml(T('pair.offline', { code: b.pairCode || '', t: since })) : escapeHtml(T('pair.waiting', { code: b.pairCode || '' })))}</div>
           </div>
           <div class="pair-actions">
-            <button id="btnExport" class="btn btn-sm">导出同步码</button>
-            <button id="btnImport" class="btn btn-sm">导入同步码</button>
+            <button id="btnExport" class="btn btn-sm">${escapeHtml(T('pair.export'))}</button>
+            <button id="btnImport" class="btn btn-sm">${escapeHtml(T('pair.import'))}</button>
             ${manualBtn}
-            <button id="btnUnpair" class="btn btn-sm btn-danger">解除配对</button>
+            <button id="btnUnpair" class="btn btn-sm btn-danger">${escapeHtml(T('pair.unpair'))}</button>
           </div>
         </div>`;
       $('btnExport').onclick = openExportModal;
@@ -1196,13 +1353,13 @@
     state.buddy = { pairCode: code, role: 'host' };
     saveState();
     renderAll();
-    openModal('创建配对码', `
-      <p class="muted">把配对码发给好友，好友随时输入这个码即可加入（不需要你在线等待）。</p>
+    openModal(T('pair.createTitle'), `
+      <p class="muted">${escapeHtml(T('pair.createIntro'))}</p>
       <div class="pair-big-code">${code}</div>
-      <div class="pair-hint">双方同时在线时，安排与进度会自动同步 ⚡</div>
+      <div class="pair-hint">${escapeHtml(T('pair.createHint'))}</div>
       <div class="modal-row">
-        <button id="btnCopyPairCode" class="btn btn-accent">复制配对码</button>
-        <button id="btnCreateDone" class="btn">完成</button>
+        <button id="btnCopyPairCode" class="btn btn-accent">${escapeHtml(T('pair.copyCode'))}</button>
+        <button id="btnCreateDone" class="btn">${escapeHtml(T('pair.done'))}</button>
       </div>`);
     $('btnCopyPairCode').onclick = () => {
       const ta = document.createElement('textarea');
@@ -1212,26 +1369,26 @@
       try { document.execCommand('copy'); } catch (e) { }
       document.body.removeChild(ta);
       if (navigator.clipboard) navigator.clipboard.writeText(code).catch(() => { });
-      toast('配对码已复制，发给好友吧');
+      toast(T('toast.pairCopied'));
     };
     $('btnCreateDone').onclick = () => { closeModal(); renderAll(); };
     syncPair({ silent: true });
   }
 
   function openJoinModal() {
-    openModal('输入配对码', `
-      <p class="muted">输入好友的 6 位配对码（不区分大小写），随时可加入，无需好友在线等待。</p>
-      <input id="joinCodeInput" class="auth-input" placeholder="例如 A3B7K2" maxlength="6" style="text-transform:uppercase">
-      <div class="modal-row"><button id="btnJoinGo" class="btn btn-accent btn-block">加入</button></div>
+    openModal(T('pair.joinTitle'), `
+      <p class="muted">${escapeHtml(T('pair.joinIntro'))}</p>
+      <input id="joinCodeInput" class="auth-input" placeholder="${escapeHtml(T('pair.joinPh'))}" maxlength="6" style="text-transform:uppercase">
+      <div class="modal-row"><button id="btnJoinGo" class="btn btn-accent btn-block">${escapeHtml(T('pair.joinGo'))}</button></div>
       <div id="joinStatus" class="modal-status"></div>`);
     $('btnJoinGo').onclick = () => {
       const code = $('joinCodeInput').value.trim().toUpperCase();
-      if (!/^[A-Z0-9]{4,8}$/.test(code)) { $('joinStatus').textContent = '请输入有效的配对码'; return; }
+      if (!/^[A-Z0-9]{4,8}$/.test(code)) { $('joinStatus').textContent = T('pair.joinBad'); return; }
       state.buddy = { pairCode: code, role: 'join' };
       saveState();
       closeModal();
       renderAll();
-      toast('已加入配对！好友上线后会自动同步');
+      toast(T('toast.joined'));
       syncPair({ silent: true });
     };
     $('joinCodeInput').focus();
@@ -1239,51 +1396,51 @@
 
   function openExportModal() {
     const code = 'SM1.' + b64u(JSON.stringify(buildSnap()));
-    openModal('导出同步码', `
-      <p class="muted">复制下面这串同步码发给好友（微信/QQ 都行）。对方在「导入同步码」里粘贴，就能看到你的安排与进度。</p>
+    openModal(T('pair.exportTitle'), `
+      <p class="muted">${escapeHtml(T('pair.exportIntro'))}</p>
       <textarea id="exportCode" class="modal-textarea" readonly>${escapeHtml(code)}</textarea>
-      <div class="modal-row"><button id="btnCopyCode" class="btn btn-accent btn-block">复制同步码</button></div>`);
+      <div class="modal-row"><button id="btnCopyCode" class="btn btn-accent btn-block">${escapeHtml(T('pair.copySync'))}</button></div>`);
     $('btnCopyCode').onclick = () => {
       const ta = $('exportCode');
       ta.select();
       try { document.execCommand('copy'); } catch (e) { }
       if (navigator.clipboard) navigator.clipboard.writeText(code).catch(() => { });
-      toast('已复制！发给好友吧');
+      toast(T('toast.codeCopied'));
     };
   }
 
   function openImportModal() {
-    openModal('导入同步码', `
-      <p class="muted">粘贴好友发给你的同步码，即可看到 TA 最新的安排与进度。</p>
-      <textarea id="importCode" class="modal-textarea" placeholder="粘贴好友的同步码…"></textarea>
-      <div class="modal-row"><button id="btnImportGo" class="btn btn-accent btn-block">导入</button></div>
+    openModal(T('pair.importTitle'), `
+      <p class="muted">${escapeHtml(T('pair.importIntro'))}</p>
+      <textarea id="importCode" class="modal-textarea" placeholder="${escapeHtml(T('pair.importPh'))}"></textarea>
+      <div class="modal-row"><button id="btnImportGo" class="btn btn-accent btn-block">${escapeHtml(T('pair.importGo'))}</button></div>
       <div id="importStatus" class="modal-status"></div>`);
     $('btnImportGo').onclick = () => {
       const raw = $('importCode').value.trim();
       try {
         const snap = JSON.parse(b64d(raw.replace(/^SM1\./, '')));
         if (mergeBuddySnapshot(snap)) {
-          $('importStatus').textContent = '✅ 导入成功！';
+          $('importStatus').textContent = T('pair.importOk');
           renderAll();
           setTimeout(closeModal, 1000);
         }
       } catch (e) {
-        $('importStatus').textContent = '同步码无效，请检查后重试';
+        $('importStatus').textContent = T('pair.importBad');
       }
     };
   }
 
   function unpair() {
-    openModal('解除配对', `
-      <p>解除后你们的进度将不再自动同步（各自的本地数据不会删除）。</p>
-      <div class="modal-row"><button id="btnUnpairGo" class="btn btn-danger btn-block">解除配对</button></div>`);
+    openModal(T('pair.unpairTitle'), `
+      <p>${escapeHtml(T('pair.unpairIntro'))}</p>
+      <div class="modal-row"><button id="btnUnpairGo" class="btn btn-danger btn-block">${escapeHtml(T('pair.unpairGo'))}</button></div>`);
     $('btnUnpairGo').onclick = () => {
       state.buddy = null;
       saveState();
       destroyPeer();
       closeModal();
       renderAll();
-      toast('已解除配对');
+      toast(T('toast.unpaired'));
     };
   }
   /* ---------- 手动直连（WebRTC 直连，不依赖任何中转服务器） ----------
@@ -1299,7 +1456,7 @@
   }
   function manualPcNew() {
     manualAbort();
-    if (!window.RTCPeerConnection) throw new Error('当前浏览器不支持 WebRTC');
+    if (!window.RTCPeerConnection) throw new Error(T('manual.errWebrtc'));
     const pc = new RTCPeerConnection({ iceServers: PEER_OPT.config.iceServers });
     manualPc = pc;
     return pc;
@@ -1358,7 +1515,7 @@
     }, 45000);
   }
   async function manualCreateOffer() {
-    if (!state || !state.buddy) throw new Error('请先配对');
+    if (!state || !state.buddy) throw new Error(T('manual.errNoBuddy'));
     const code = state.buddy.pairCode;
     const role = state.buddy.role === 'host' ? 'host' : 'join';
     const pc = manualPcNew();
@@ -1372,7 +1529,7 @@
     return 'SM2.O.' + b64u(pc.localDescription.sdp);
   }
   async function manualAnswerOffer(offerSdp) {
-    if (!state || !state.buddy) throw new Error('请先配对');
+    if (!state || !state.buddy) throw new Error(T('manual.errNoBuddy'));
     const code = state.buddy.pairCode;
     const role = state.buddy.role === 'host' ? 'host' : 'join';
     const pc = manualPcNew();
@@ -1388,7 +1545,7 @@
     return 'SM2.A.' + b64u(pc.localDescription.sdp);
   }
   async function manualAcceptAnswer(answerSdp) {
-    if (!manualPc) throw new Error('请先在你自己这边点「生成邀请」');
+    if (!manualPc) throw new Error(T('manual.errNoOffer'));
     await manualPc.setRemoteDescription({ type: 'answer', sdp: answerSdp });
   }
   function manualCopyText(t) {
@@ -1401,63 +1558,59 @@
     if (navigator.clipboard) navigator.clipboard.writeText(t).catch(() => { });
   }
   function openManualModal() {
-    if (connOpen) { toast('你们已经实时连接中，无需手动直连'); return; }
-    openModal('手动直连', `
-      <p class="muted">自动同步连不上时用这个：不依赖任何中转服务器，直接在你和好友之间建立连接，微信/QQ 互发内容即可。</p>
-      <div class="muted" style="line-height:1.7">
-        ① 任选一方点【生成邀请】，复制内容发给对方（<b>只由一方生成</b>）；<br>
-        ② 另一方把邀请完整粘贴到下面输入框，点【生成应答】，把内容发回去；<br>
-        ③ 邀请方把应答粘贴回输入框，点【完成连接】，即自动开始实时同步。
-      </div>
-      <textarea id="manualBox" class="modal-textarea" placeholder="把收到的邀请 / 应答内容完整粘贴到这里…" style="margin-top:10px"></textarea>
+    if (connOpen) { toast(T('toast.alreadyConnected')); return; }
+    openModal(T('manual.title'), `
+      <p class="muted">${escapeHtml(T('manual.intro'))}</p>
+      <div class="muted" style="line-height:1.7">${T('manual.steps')}</div>
+      <textarea id="manualBox" class="modal-textarea" placeholder="${escapeHtml(T('manual.boxPh'))}" style="margin-top:10px"></textarea>
       <div class="modal-row" style="flex-wrap:wrap">
-        <button id="btnManualOffer" class="btn btn-accent">① 生成邀请</button>
-        <button id="btnManualAnswer" class="btn">② 生成应答</button>
-        <button id="btnManualGo" class="btn">③ 完成连接</button>
-        <button id="btnManualCancel" class="btn btn-ghost">放弃</button>
+        <button id="btnManualOffer" class="btn btn-accent">${escapeHtml(T('manual.offer'))}</button>
+        <button id="btnManualAnswer" class="btn">${escapeHtml(T('manual.answer'))}</button>
+        <button id="btnManualGo" class="btn">${escapeHtml(T('manual.go'))}</button>
+        <button id="btnManualCancel" class="btn btn-ghost">${escapeHtml(T('manual.cancel'))}</button>
       </div>
       <div id="manualStatus" class="modal-status"></div>`);
     const st = $('manualStatus');
     const box = $('manualBox');
     $('btnManualOffer').onclick = async () => {
-      st.textContent = '正在生成邀请…';
+      st.textContent = T('manual.genOffer');
       try {
         const t = await manualCreateOffer();
         box.value = t;
         manualCopyText(t);
-        st.textContent = '邀请已生成并复制 ✅ 把它发给好友，等 TA 把「应答」粘贴回来，再点【③ 完成连接】';
-        toast('邀请已复制，发给好友吧');
+        st.textContent = T('manual.offerOk');
+        toast(T('toast.inviteCopied'));
       } catch (e) {
         manualAbort();
-        st.textContent = '生成失败：' + String((e && e.message) || e);
+        st.textContent = T('manual.genFail', { e: String((e && e.message) || e) });
       }
     };
     $('btnManualAnswer').onclick = async () => {
       const raw = box.value.trim();
-      if (raw.indexOf('SM2.O.') !== 0) { st.textContent = '请先把对方发来的「邀请」完整粘贴到输入框'; return; }
-      st.textContent = '正在生成应答…';
+      if (raw.indexOf('SM2.O.') !== 0) { st.textContent = T('manual.needOffer'); return; }
+      st.textContent = T('manual.genAnswer');
       try {
         const t = await manualAnswerOffer(b64d(raw.replace(/^SM2\.O\./, '')));
         box.value = t;
         manualCopyText(t);
-        st.textContent = '应答已生成并复制 ✅ 把它发回给邀请方，请 TA 点【③ 完成连接】';
-        toast('应答已复制，发回给好友吧');
+        st.textContent = T('manual.answerOk');
+        toast(T('toast.answerCopied'));
       } catch (e) {
         manualAbort();
-        st.textContent = '生成失败：' + String((e && e.message) || e) + '（请确认粘贴内容完整）';
+        st.textContent = T('manual.genFailFull', { e: String((e && e.message) || e) });
       }
     };
     $('btnManualGo').onclick = async () => {
       const raw = box.value.trim();
-      if (raw.indexOf('SM2.A.') !== 0) { st.textContent = '请把对方发来的「应答」完整粘贴到输入框'; return; }
-      st.textContent = '正在建立连接…';
+      if (raw.indexOf('SM2.A.') !== 0) { st.textContent = T('manual.needAnswer'); return; }
+      st.textContent = T('manual.connecting');
       try {
         await manualAcceptAnswer(b64d(raw.replace(/^SM2\.A\./, '')));
-        st.textContent = '连接已建立 ✅ 正在自动同步…';
+        st.textContent = T('manual.connOk');
         setTimeout(() => { if (connOpen) closeModal(); }, 1200);
       } catch (e) {
         manualAbort();
-        st.textContent = '连接失败：' + String((e && e.message) || e) + '（若双方网络类型特殊连不上，可用「同步码」同步）';
+        st.textContent = T('manual.connFail', { e: String((e && e.message) || e) });
       }
     };
     $('btnManualCancel').onclick = () => { manualAbort(); closeModal(); };
@@ -1486,6 +1639,14 @@
   /* ---------- 初始化 ---------- */
   function enterApp(u) {
     state = loadState(u);
+    // 账号里记着语言（换电脑用备份码搬过来时一起带过来）；没有就跟当前设置一致
+    if (state.lang && state.lang !== I18N.lang) {
+      I18N.set(state.lang);
+      applyI18n();
+      setAuthMode(authMode);
+    } else if (!state.lang) {
+      state.lang = I18N.lang;
+    }
     $('authView').classList.add('hidden');
     $('appView').classList.remove('hidden');
     $('userName').textContent = state.account.username;
@@ -1496,7 +1657,7 @@
     heartbeatTimer = setInterval(() => { if (connOpen) send({ t: 'ping' }); }, 15000);
     // 周期同步：每 5 秒推一次最新进度（连接建立后生效），保证安排/超时状态及时到好友那边
     syncLoopTimer = setInterval(() => {
-      if (connOpen) { sendSnapNow(); syncRecord(true, '周期同步'); }
+      if (connOpen) { sendSnapNow(); syncRecord(true, T('sync.reason.periodic')); }
     }, 5000);
     // 限时倒计时秒级刷新 + 到点自动标记超时
     cdTickTimer = setInterval(tickCountdowns, 1000);
@@ -1521,12 +1682,18 @@
     $('authRestore').onclick = openAcctRestoreModal;
     $('authUser').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('authPass').focus(); });
     $('authPass').addEventListener('keydown', (e) => { if (e.key === 'Enter') doAuth(); });
+    setAuthMode(authMode); // 按当前语言同步登录/注册按钮与占位符文案
 
     // 顶栏
     $('logoutBtn').onclick = logout;
     $('btnAcct').onclick = openAccountModal;
     $('btnSyncStat').onclick = openSyncStatModal;
     document.querySelectorAll('.tab').forEach((b) => { b.onclick = () => switchView(b.dataset.view); });
+
+    // 石匠工坊：上传自定义图片（打形阶段解锁）
+    $('btnCarveImg').onclick = pickCarveImage;
+    $('btnCarveImgDel').onclick = clearCarveImage;
+    $('carveImgFile').onchange = onCarveFile;
 
     // 今日安排
     $('btnAdd').onclick = addItem;

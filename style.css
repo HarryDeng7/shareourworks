@@ -546,3 +546,38 @@ input.item-text:focus { background: rgba(245, 158, 11, 0.1); box-shadow: 0 0 0 1
   cursor: pointer;
   font-size: 13px;
 }
+
+/* ===== 语言设置（用户详情内） ===== */
+.lang-switch { display: flex; gap: 8px; flex: none; }
+.lang-switch .btn {
+  padding: 5px 14px;
+  font-size: 13px;
+  border-radius: 8px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.lang-switch .btn.active { background: var(--accent); border-color: var(--accent); color: #1c1400; font-weight: 700; }
+
+/* ===== 自定义图片（打形阶段解锁） ===== */
+.carve-tools { margin-top: 12px; text-align: center; }
+.carve-btns { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+.carve-legend { margin-top: 10px; font-size: 12px; line-height: 1.9; color: #64748b; }
+/* 只给读屏/程序保留的隐藏元素（display:none 的 file input 有些浏览器点不开） */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* 钻石闪光 */
+@keyframes gemTwinkle { 0%, 100% { opacity: 0.15; } 50% { opacity: 1; } }
+.gem-spark { animation: gemTwinkle 2.6s ease-in-out infinite; }
+.gem-spark.d2 { animation-delay: 0.8s; }
+.gem-spark.d3 { animation-delay: 1.6s; }

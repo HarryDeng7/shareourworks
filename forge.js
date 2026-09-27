@@ -4,15 +4,56 @@
 
   const VIEW_W = 640, VIEW_H = 420;
 
+  /* 雕刻阶段：按「你自己的打卡天数」推进（共敲击不影响它） */
   const STAGES = [
-    [0, '原石'],
-    [8, '初凿'],
-    [25, '打形'],
-    [50, '精雕'],
-    [90, '渐成'],
-    [150, '杰作'],
+    [0, 'forge.stage0'],
+    [8, 'forge.stage1'],
+    [25, 'forge.stage2'],
+    [50, 'forge.stage3'],
+    [90, 'forge.stage4'],
+    [150, 'forge.stage5'],
   ];
-  const CARVE_MAX = 150; // 雕成杰作所需总敲击数
+  const CARVE_MAX = 150;  // 雕成杰作所需打卡天数
+  const UNLOCK_DAYS = 25; // 到「打形」就能上传图片自定义图案
+
+  /* 桌上的原材料：按「你和好友合计的敲击数」升级 */
+  const MATERIALS = [
+    { id: 'stone', at: 0, key: 'forge.mat.stone' },
+    { id: 'iron', at: 20, key: 'forge.mat.iron' },
+    { id: 'gold', at: 100, key: 'forge.mat.gold' },
+    { id: 'diamond', at: 150, key: 'forge.mat.diamond' },
+  ];
+  const SHAPE_OF = { stone: 'stone', iron: 'ingot', gold: 'ingot', diamond: 'gem' };
+  // 自定义图片的覆盖范围（viewBox 坐标），跟着材料轮廓走
+  const IMG_BOX = {
+    stone: { x: 280, y: 250, w: 100, h: 52 },
+    ingot: { x: 276, y: 266, w: 106, h: 38 },
+    gem: { x: 292, y: 262, w: 76, h: 44 },
+  };
+  // 每种材料的敲击特效：落锤点、光晕、火星、碎屑、叮字颜色
+  const FX = {
+    stone: { x: 366, y: 254, glow: '#f59e0b', glowOp: 0.14, sparks: ['#fbbf24', '#fcd34d'], debris: '#94a3b8', text: '#fbbf24' },
+    iron: { x: 366, y: 272, glow: '#94a3b8', glowOp: 0.12, sparks: ['#e2e8f0', '#cbd5e1'], debris: '#64748b', text: '#e2e8f0' },
+    gold: { x: 366, y: 272, glow: '#fbbf24', glowOp: 0.18, sparks: ['#fde047', '#facc15'], debris: '#b45309', text: '#fde047' },
+    diamond: { x: 360, y: 272, glow: '#22d3ee', glowOp: 0.2, sparks: ['#a5f3fc', '#67e8f9'], debris: '#7dd3fc', text: '#a5f3fc' },
+  };
+  const SVGNS = 'http://www.w3.org/2000/svg';
+
+  function T(k, v) { return window.I18N ? window.I18N.t(k, v) : k; }
+
+  function materialOf(total) {
+    let m = MATERIALS[0];
+    for (let i = 0; i < MATERIALS.length; i++) if ((total || 0) >= MATERIALS[i].at) m = MATERIALS[i];
+    return m;
+  }
+
+  function stageOf(days) {
+    let cur = STAGES[0], next = null;
+    for (let i = 0; i < STAGES.length; i++) {
+      if ((days || 0) >= STAGES[i][0]) { cur = STAGES[i]; next = STAGES[i + 1] || null; }
+    }
+    return { key: cur[1], next: next };
+  }
 
   /* ---------- 音效（WebAudio，无需素材） ---------- */
   const sound = {
@@ -65,7 +106,24 @@
     <radialGradient id="warmGlow" cx="0.5" cy="0.5" r="0.5">
       <stop offset="0" stop-color="#f59e0b" stop-opacity="0.22"/><stop offset="1" stop-color="#f59e0b" stop-opacity="0"/>
     </radialGradient>
-    <clipPath id="statueClip"><rect id="statueClipRect" x="272" y="252" width="96" height="52"/></clipPath>
+    <linearGradient id="ironGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#b9c6d6"/><stop offset="1" stop-color="#5c6b80"/>
+    </linearGradient>
+    <linearGradient id="ironTop" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f1f5f9"/><stop offset="1" stop-color="#9aa8b8"/>
+    </linearGradient>
+    <linearGradient id="goldGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fcd34d"/><stop offset="1" stop-color="#b45309"/>
+    </linearGradient>
+    <linearGradient id="goldTop" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fef3c7"/><stop offset="1" stop-color="#f59e0b"/>
+    </linearGradient>
+    <linearGradient id="gemGrad" x1="0" y1="0" x2="0.4" y2="1">
+      <stop offset="0" stop-color="#e8f9ff"/><stop offset="0.45" stop-color="#7dd3fc"/><stop offset="1" stop-color="#0284c7"/>
+    </linearGradient>
+    <clipPath id="clip-stone"><path d="M284,300 C281,268 302,252 330,252 C358,252 379,268 376,300 Z"/></clipPath>
+    <clipPath id="clip-ingot"><path d="M300,270 L360,270 L366,282 L378,302 L282,302 L294,282 Z"/></clipPath>
+    <clipPath id="clip-gem"><path d="M312,266 L348,266 L366,284 L330,302 L294,284 Z"/></clipPath>
   </defs>
 
   <!-- 墙壁 -->
@@ -132,23 +190,50 @@
   <rect x="475" y="355" width="15" height="50" fill="#5b3412"/>
   <ellipse cx="320" cy="398" rx="190" ry="16" fill="#000" opacity="0.3"/>
 
-  <!-- 石头 -->
-  <ellipse cx="320" cy="303" rx="52" ry="10" fill="#f59e0b" opacity="0.14"/>
-  <g id="stone" class="stone-hit">
-    <path id="stoneShape" d="M284,300 C281,268 302,252 330,252 C358,252 379,268 376,300 Z" fill="url(#stoneGrad)" stroke="#334155" stroke-width="2"/>
-    <ellipse cx="312" cy="270" rx="13" ry="5.5" fill="#94a3b8" opacity="0.35"/>
+  <!-- 桌上的原材料：石头 → 铁锭 → 金锭 → 钻石（按两人合计敲击数升级） -->
+  <ellipse id="itemGlow" cx="330" cy="302" rx="58" ry="10" fill="#f59e0b" opacity="0.14"/>
+  <g id="item" class="stone-hit" data-material="stone">
+    <g id="mat-stone">
+      <path d="M284,300 C281,268 302,252 330,252 C358,252 379,268 376,300 Z" fill="url(#stoneGrad)" stroke="#334155" stroke-width="2"/>
+      <ellipse cx="312" cy="270" rx="13" ry="5.5" fill="#94a3b8" opacity="0.35"/>
+      <ellipse cx="352" cy="265" rx="8" ry="4" fill="#94a3b8" opacity="0.22"/>
+    </g>
+    <g id="mat-iron" class="hidden">
+      <path d="M294,282 L366,282 L378,302 L282,302 Z" fill="url(#ironGrad)" stroke="#475569" stroke-width="2"/>
+      <path d="M300,270 L360,270 L366,282 L294,282 Z" fill="url(#ironTop)" stroke="#64748b" stroke-width="1.5"/>
+      <path d="M302,274 L358,274" stroke="#f8fafc" stroke-width="1.5" opacity="0.45" stroke-linecap="round"/>
+    </g>
+    <g id="mat-gold" class="hidden">
+      <path d="M294,282 L366,282 L378,302 L282,302 Z" fill="url(#goldGrad)" stroke="#92400e" stroke-width="2"/>
+      <path d="M300,270 L360,270 L366,282 L294,282 Z" fill="url(#goldTop)" stroke="#b45309" stroke-width="1.5"/>
+      <path d="M302,274 L358,274" stroke="#fffbeb" stroke-width="1.5" opacity="0.6" stroke-linecap="round"/>
+    </g>
+    <g id="mat-diamond" class="hidden">
+      <path d="M312,266 L348,266 L366,284 L330,302 L294,284 Z" fill="url(#gemGrad)" stroke="#0369a1" stroke-width="2"/>
+      <path d="M312,266 L348,266 L336,284 L324,284 Z" fill="#ffffff" opacity="0.3"/>
+      <g stroke="#e0f7ff" stroke-width="1.2" opacity="0.7" fill="none">
+        <path d="M294,284 L366,284"/>
+        <path d="M312,266 L324,284"/><path d="M348,266 L336,284"/>
+        <path d="M324,284 L330,302"/><path d="M336,284 L330,302"/>
+        <path d="M294,284 L330,302"/><path d="M366,284 L330,302"/>
+      </g>
+      <g stroke="#f0f9ff" stroke-width="2" stroke-linecap="round">
+        <path class="gem-spark" d="M354,246 L354,236 M349,241 L359,241"/>
+        <path class="gem-spark d2" d="M296,262 L296,254 M292,258 L300,258"/>
+      </g>
+    </g>
+    <!-- 上传的图片刻在材料上（打形阶段解锁） -->
+    <g id="engrave" class="hidden" style="isolation:isolate">
+      <image id="engraveTint" x="0" y="0" width="0" height="0" preserveAspectRatio="xMidYMid slice" style="mix-blend-mode:luminosity"/>
+      <image id="engraveColor" x="0" y="0" width="0" height="0" preserveAspectRatio="xMidYMid slice"/>
+    </g>
     <g id="cracks" stroke="#0f172a" stroke-width="2.4" fill="none" stroke-linecap="round" opacity="0">
       <path d="M308,262 L316,278 L311,292"/>
       <path d="M340,258 L333,274 L344,288"/>
       <path d="M322,296 L316,301"/>
     </g>
-    <g id="statue" clip-path="url(#statueClip)" opacity="0">
-      <path d="M296,302 C296,282 306,272 320,272 C334,272 344,282 344,302 Z" fill="#cbd5e1"/>
-      <circle cx="320" cy="264" r="10" fill="#cbd5e1"/>
-      <rect x="294" y="298" width="52" height="7" rx="2" fill="#94a3b8"/>
-    </g>
   </g>
-  <ellipse cx="320" cy="300" rx="66" ry="9" fill="#000" opacity="0.25"/>
+  <ellipse cx="330" cy="301" rx="66" ry="9" fill="#000" opacity="0.25"/>
 </svg>`;
   }
 
@@ -157,11 +242,16 @@
     el: null,
     svg: null,
     armEl: null,
-    stoneEl: null,
+    itemEl: null,
+    glowEl: null,
     cracksEl: null,
-    statueEl: null,
-    clipRectEl: null,
-    statueOpacity: 0,
+    engraveEl: null,
+    engraveTint: null,
+    engraveColor: null,
+    engraveSrc: '',
+    material: '',
+    myDays: 0,
+    painted: false,
     armAngle: 0,
     busy: false,
     onStoneClick: null,
@@ -174,19 +264,21 @@
       const svg = container.querySelector('svg');
       this.svg = svg;
       this.armEl = svg.querySelector('#armR');
-      this.stoneEl = svg.querySelector('#stone');
+      this.itemEl = svg.querySelector('#item');
+      this.glowEl = svg.querySelector('#itemGlow');
       this.cracksEl = svg.querySelector('#cracks');
-      this.statueEl = svg.querySelector('#statue');
-      this.clipRectEl = svg.querySelector('#statueClipRect');
+      this.engraveEl = svg.querySelector('#engrave');
+      this.engraveTint = svg.querySelector('#engraveTint');
+      this.engraveColor = svg.querySelector('#engraveColor');
 
       // 手臂动画需要以肩部为原点（viewBox 坐标系）
       this.armEl.style.transformBox = 'view-box';
       this.armEl.style.transformOrigin = '348px 168px';
       this.armEl.style.transform = 'rotate(0deg)';
-      this.stoneEl.style.transformBox = 'fill-box';
-      this.stoneEl.style.transformOrigin = '50% 90%';
+      this.itemEl.style.transformBox = 'fill-box';
+      this.itemEl.style.transformOrigin = '50% 90%';
 
-      this.stoneEl.addEventListener('click', (e) => {
+      this.itemEl.addEventListener('click', (e) => {
         e.stopPropagation();
         sound.ensure();
         if (this.busy) return;
@@ -204,29 +296,96 @@
       }, 3400);
     },
 
-    /* 更新统计与雕刻进度 */
-    update({ total }) {
+    /* 更新：桌上材料（两人合计敲击）+ 雕刻阶段（我的打卡天数） */
+    update({ total, myDays }) {
       total = total || 0;
-      this.statueOpacity = Math.min(1, total / CARVE_MAX) * 0.95;
-      this.statueEl.style.opacity = this.statueOpacity.toFixed(3);
-      this.cracksEl.style.opacity = (Math.min(1, total / 50) * 0.8).toFixed(3);
-
-      let stageName = STAGES[0][1], next = null, prog = 0;
-      for (let i = 0; i < STAGES.length; i++) {
-        const [t, n] = STAGES[i];
-        if (total >= t) { stageName = n; next = STAGES[i + 1] || null; prog = t; }
+      myDays = myDays || 0;
+      this.myDays = myDays;
+      const mat = materialOf(total);
+      const fx = FX[mat.id] || FX.stone;
+      if (mat.id !== this.material) {
+        this.material = mat.id;
+        this.itemEl.dataset.material = mat.id;
+        this.itemEl.querySelectorAll('g').forEach((g) => {
+          if (g.id.indexOf('mat-') === 0) g.classList.toggle('hidden', g.id !== 'mat-' + mat.id);
+        });
+        this.glowEl.setAttribute('fill', fx.glow);
+        this.glowEl.setAttribute('opacity', String(fx.glowOp));
+        this.engraveEl.setAttribute('clip-path', 'url(#clip-' + SHAPE_OF[mat.id] + ')');
+        this.syncEngrave();
+        if (this.painted) this.morph();
       }
+      // 石头阶段：越接近「铁锭」裂纹越明显
+      this.cracksEl.style.opacity =
+        (mat.id === 'stone' ? Math.min(1, total / MATERIALS[1].at) * 0.85 : 0).toFixed(3);
+
+      const st = stageOf(myDays);
       const bar = document.getElementById('carveBar');
       const stageEl = document.getElementById('carveStage');
       const textEl = document.getElementById('carveText');
-      if (bar) bar.style.width = Math.min(100, (total / CARVE_MAX) * 100).toFixed(1) + '%';
-      if (stageEl) stageEl.textContent = stageName;
+      if (bar) bar.style.width = Math.min(100, (myDays / CARVE_MAX) * 100).toFixed(1) + '%';
+      if (stageEl) stageEl.textContent = T(st.key);
       if (textEl) {
-        textEl.textContent = next
-          ? '距「' + next[1] + '」还差 ' + (next[0] - total) + ' 下'
-          : '已雕成杰作，继续创造纪录吧！';
+        textEl.textContent = st.next
+          ? T('forge.stageLeft', { stage: T(st.next[1]), n: st.next[0] - myDays })
+          : T('forge.stageDone');
       }
-      void prog;
+      this.painted = true;
+    },
+
+    /* 自定义图片：刻在当前材料上（打形阶段解锁，越往后越清晰） */
+    setEngrave(url) {
+      this.engraveSrc = url || '';
+      this.syncEngrave();
+    },
+
+    syncEngrave() {
+      const box = IMG_BOX[SHAPE_OF[this.material] || 'stone'];
+      const show = !!this.engraveSrc && this.myDays >= UNLOCK_DAYS;
+      this.engraveEl.classList.toggle('hidden', !show);
+      if (!show) return;
+      const span = CARVE_MAX - UNLOCK_DAYS;
+      const p = Math.min(1, Math.max(0, (this.myDays - UNLOCK_DAYS) / (span || 1)));
+      [this.engraveTint, this.engraveColor].forEach((el) => {
+        el.setAttribute('x', box.x);
+        el.setAttribute('y', box.y);
+        el.setAttribute('width', box.w);
+        el.setAttribute('height', box.h);
+        if (el.getAttribute('href') !== this.engraveSrc) {
+          el.setAttribute('href', this.engraveSrc);
+          try { el.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', this.engraveSrc); } catch (e) { }
+        }
+      });
+      this.engraveTint.setAttribute('opacity', (0.6 + 0.32 * p).toFixed(3));
+      this.engraveColor.setAttribute('opacity', (0.34 + 0.26 * p).toFixed(3));
+    },
+
+    /* 材料升级的那一瞬间：弹一下 + 光晕一圈 */
+    morph() {
+      const fx = FX[this.material] || FX.stone;
+      this.itemEl.animate(
+        [
+          { transform: 'scale(1,1)' },
+          { transform: 'scale(0.88,1.14)' },
+          { transform: 'scale(1.08,0.94)' },
+          { transform: 'scale(1,1)' },
+        ],
+        { duration: 640, easing: 'ease-out' }
+      );
+      const c = document.createElementNS(SVGNS, 'circle');
+      c.setAttribute('cx', '330');
+      c.setAttribute('cy', '278');
+      c.setAttribute('r', '26');
+      c.setAttribute('fill', 'none');
+      c.setAttribute('stroke', fx.glow);
+      c.setAttribute('stroke-width', '4');
+      c.style.transformBox = 'fill-box';
+      c.style.transformOrigin = '50% 50%';
+      this.svg.appendChild(c);
+      c.animate(
+        [{ transform: 'scale(0.3)', opacity: 0.95 }, { transform: 'scale(3.6)', opacity: 0 }],
+        { duration: 640, easing: 'ease-out' }
+      ).onfinish = () => c.remove();
     },
     /* 敲击动画 */
     async strike() {
@@ -266,8 +425,9 @@
 
     impact() {
       const svg = this.svg;
-      // 石头震动
-      this.stoneEl.animate(
+      const fx = FX[this.material] || FX.stone;
+      // 材料震动
+      this.itemEl.animate(
         [
           { transform: 'translate(0,0) rotate(0)' },
           { transform: 'translate(3px,-2px) rotate(1.5deg)' },
@@ -279,7 +439,7 @@
       // 裂纹闪光
       this.cracksEl.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 320 });
 
-      const CX = 366, CY = 254; // 锤子落点
+      const CX = fx.x, CY = fx.y; // 锤子落点（跟着材料走）
       // 火星
       for (let i = 0; i < 7; i++) {
         const a = Math.PI * (0.15 + 0.7 * Math.random()) * (i % 2 ? 1 : -1) - Math.PI / 2;
@@ -288,7 +448,7 @@
         const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
         c.setAttribute('cx', CX); c.setAttribute('cy', CY);
         c.setAttribute('r', 1.6 + Math.random() * 2);
-        c.setAttribute('fill', i % 3 === 0 ? '#fbbf24' : '#fcd34d');
+        c.setAttribute('fill', fx.sparks[i % fx.sparks.length]);
         svg.appendChild(c);
         c.animate(
           [
@@ -305,7 +465,7 @@
         const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
         c.setAttribute('cx', CX + 8); c.setAttribute('cy', CY);
         c.setAttribute('r', 1.2 + Math.random());
-        c.setAttribute('fill', '#94a3b8');
+        c.setAttribute('fill', fx.debris);
         svg.appendChild(c);
         c.animate(
           [
@@ -321,8 +481,8 @@
       t.setAttribute('text-anchor', 'middle');
       t.setAttribute('font-size', '19');
       t.setAttribute('font-weight', 'bold');
-      t.setAttribute('fill', '#fbbf24');
-      t.textContent = '叮!';
+      t.setAttribute('fill', fx.text);
+      t.textContent = T('forge.clink');
       svg.appendChild(t);
       t.animate(
         [
@@ -338,6 +498,12 @@
   };
 
   function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+  Forge.MATERIALS = MATERIALS;
+  Forge.STAGES = STAGES;
+  Forge.UNLOCK_DAYS = UNLOCK_DAYS;
+  Forge.materialId = function (total) { return materialOf(total).id; };
+  Forge.materialName = function (total) { return T(materialOf(total).key); };
 
   window.Forge = Forge;
 })();

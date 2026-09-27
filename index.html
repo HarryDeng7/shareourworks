@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>敲石工坊 · 好友监督打卡</title>
+<title data-i18n="doc.title">敲石工坊 · 好友监督打卡</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⛏️</text></svg>">
 <link rel="stylesheet" href="./style.css">
 </head>
@@ -13,37 +13,37 @@
 <div id="authView" class="auth-wrap">
   <div class="auth-card">
     <div class="auth-logo">⛏️🪨</div>
-    <h1 class="auth-title">敲石工坊</h1>
-    <p class="auth-sub">和好友互相监督，每天一起敲石头</p>
+    <h1 class="auth-title" data-i18n="app.name">敲石工坊</h1>
+    <p class="auth-sub" data-i18n="auth.sub">和好友互相监督，每天一起敲石头</p>
     <div class="auth-tabs">
-      <button id="authTabLogin" class="auth-tab active">登录</button>
-      <button id="authTabReg" class="auth-tab">注册</button>
+      <button id="authTabLogin" class="auth-tab active" data-i18n="auth.login">登录</button>
+      <button id="authTabReg" class="auth-tab" data-i18n="auth.reg">注册</button>
     </div>
-    <input id="authUser" class="auth-input" type="text" placeholder="用户名" maxlength="16" autocomplete="username">
+    <input id="authUser" class="auth-input" type="text" placeholder="用户名" data-i18n-ph="auth.userPh" maxlength="16" autocomplete="username">
     <input id="authPass" class="auth-input" type="password" placeholder="密码（至少 4 位）" autocomplete="current-password">
     <div id="authErr" class="auth-err"></div>
     <button id="authBtn" class="btn btn-accent btn-block">登录</button>
-    <button id="authRestore" class="btn btn-ghost btn-block" style="margin-top:8px">📦 换电脑？用备份码恢复账号</button>
-    <p class="auth-note">🔒 所有数据只保存在你自己的浏览器本地（localStorage），不经过任何服务器。<br>好友之间通过「配对码」实时同步，或复制「同步码」手动交换。</p>
+    <button id="authRestore" class="btn btn-ghost btn-block" data-i18n="auth.restore" style="margin-top:8px">📦 换电脑？用备份码恢复账号</button>
+    <p class="auth-note" data-i18n-html="auth.note">🔒 所有数据只保存在你自己的浏览器本地（localStorage），不经过任何服务器。<br>好友之间通过「配对码」实时同步，或复制「同步码」手动交换。</p>
   </div>
 </div>
 
 <!-- ===== 主应用 ===== -->
 <div id="appView" class="app hidden">
   <header class="topbar">
-    <div class="brand">⛏️ 敲石工坊</div>
+    <div class="brand" data-i18n="app.brand">⛏️ 敲石工坊</div>
     <nav class="tabs">
-      <button class="tab active" data-view="today">今日安排</button>
-      <button class="tab" data-view="forge">石匠工坊</button>
-      <button class="tab" data-view="history">历史记录</button>
+      <button class="tab active" data-view="today" data-i18n="nav.today">今日安排</button>
+      <button class="tab" data-view="forge" data-i18n="nav.forge">石匠工坊</button>
+      <button class="tab" data-view="history" data-i18n="nav.history">历史记录</button>
     </nav>
     <div class="userbox">
       <div class="userbox-top">
         <span id="userName" class="username"></span>
-        <button id="logoutBtn" class="btn btn-ghost btn-sm">退出</button>
+        <button id="logoutBtn" class="btn btn-ghost btn-sm" data-i18n="nav.logout">退出</button>
       </div>
-      <button id="btnAcct" class="btn btn-ghost btn-sm" title="查看用户名、密码，或修改密码">👤 用户详情</button>
-      <button id="btnSyncStat" class="btn btn-ghost btn-sm" title="查看同步成功/失败记录">⇄ 同步记录</button>
+      <button id="btnAcct" class="btn btn-ghost btn-sm" title="查看用户名、密码，或修改密码" data-i18n-title="nav.accountTitle" data-i18n="nav.account">👤 用户详情</button>
+      <button id="btnSyncStat" class="btn btn-ghost btn-sm" title="查看同步成功/失败记录" data-i18n-title="nav.syncTitle" data-i18n="nav.sync">⇄ 同步记录</button>
     </div>
   </header>
 
@@ -55,7 +55,7 @@
       <div class="grid-2">
         <div class="panel">
           <div class="panel-head">
-            <h2>我的安排</h2>
+            <h2 data-i18n="today.myTitle">我的安排</h2>
             <span id="todayLabel" class="muted"></span>
           </div>
           <div class="prog-row">
@@ -64,23 +64,23 @@
           </div>
           <div id="myList" class="item-list"></div>
           <div class="add-row">
-            <input id="newItemText" class="input" type="text" placeholder="添加一项今日安排…" maxlength="60">
-            <input id="newItemTime" class="input input-time" type="time" title="几点之前完成（可选）">
-            <select id="newItemDue" class="input input-due" title="限时完成倒计时（可选）：添加后开始倒计时，到点未勾选算未完成">
-              <option value="0">不限时</option>
-              <option value="30">30 分钟</option>
-              <option value="60">1 小时</option>
-              <option value="120">2 小时</option>
-              <option value="180">3 小时</option>
-              <option value="240">4 小时</option>
+            <input id="newItemText" class="input" type="text" placeholder="添加一项今日安排…" data-i18n-ph="today.addPh" maxlength="60">
+            <input id="newItemTime" class="input input-time" type="time" title="几点之前完成（可选）" data-i18n-title="today.timeTitle">
+            <select id="newItemDue" class="input input-due" title="限时完成倒计时（可选）：添加后开始倒计时，到点未勾选算未完成" data-i18n-title="today.dueTitle">
+              <option value="0" data-i18n="today.due0">不限时</option>
+              <option value="30" data-i18n="today.due30">30 分钟</option>
+              <option value="60" data-i18n="today.due60">1 小时</option>
+              <option value="120" data-i18n="today.due120">2 小时</option>
+              <option value="180" data-i18n="today.due180">3 小时</option>
+              <option value="240" data-i18n="today.due240">4 小时</option>
             </select>
-            <button id="btnAdd" class="btn btn-accent">添加</button>
+            <button id="btnAdd" class="btn btn-accent" data-i18n="today.add">添加</button>
           </div>
         </div>
 
         <div class="panel">
           <div class="panel-head">
-            <h2>好友的安排</h2>
+            <h2 data-i18n="today.buddyTitle">好友的安排</h2>
             <span id="buddyStatus" class="muted"></span>
           </div>
           <div class="prog-row">
@@ -97,11 +97,11 @@
     <!-- 石匠工坊 -->
     <section id="view-forge" class="view hidden">
       <div class="stats-row">
-        <div class="stat-card stat-total"><span id="statTotal">0</span><label>共敲击（下）</label></div>
-        <div class="stat-card"><span id="statMine">0</span><label>我敲了</label></div>
-        <div class="stat-card"><span id="statBuddy">0</span><label>好友敲了</label></div>
-        <div class="stat-card"><span id="statCredit">0</span><label>我的敲击机会</label></div>
-        <div class="stat-card"><span id="statDays">0</span><label>已打卡天数</label></div>
+        <div class="stat-card stat-total"><span id="statTotal">0</span><label data-i18n="forge.statTotal">共敲击（下）</label></div>
+        <div class="stat-card"><span id="statMine">0</span><label data-i18n="forge.statMine">我敲了</label></div>
+        <div class="stat-card"><span id="statBuddy">0</span><label data-i18n="forge.statBuddy">好友敲了</label></div>
+        <div class="stat-card"><span id="statCredit">0</span><label data-i18n="forge.statCredit">我的敲击机会</label></div>
+        <div class="stat-card"><span id="statDays">0</span><label data-i18n="forge.statDays">已打卡天数</label></div>
       </div>
       <div class="panel forge-panel">
         <div id="forgeScene" class="forge-scene"></div>
@@ -111,6 +111,15 @@
           <span id="carveText" class="muted"></span>
         </div>
         <p id="forgeHint" class="forge-hint">点击桌上的石头，石匠就会敲一下</p>
+        <div id="carveTools" class="carve-tools">
+          <div id="carveToolsHint" class="muted"></div>
+          <div id="carveToolsBtns" class="carve-btns hidden">
+            <button id="btnCarveImg" class="btn btn-sm" data-i18n="forge.upload">📷 上传图片</button>
+            <button id="btnCarveImgDel" class="btn btn-ghost btn-sm" data-i18n="forge.removeImg">移除图片</button>
+            <input id="carveImgFile" class="sr-only" type="file" accept="image/*">
+          </div>
+        </div>
+        <div id="carveLegend" class="carve-legend"></div>
       </div>
     </section>
 
@@ -141,6 +150,7 @@
 <div id="toasts" class="toasts"></div>
 <div id="confettiLayer"></div>
 
+<script src="./i18n.js"></script>
 <script src="./forge.js"></script>
 <script src="./app.js"></script>
 </body>
