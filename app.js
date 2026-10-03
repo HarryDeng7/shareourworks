@@ -895,7 +895,7 @@
     const noCredit = state.credit <= 0;
     el.textContent = noCredit
       ? T('forge.hintNoCredit')
-      : T('forge.hint', { item: Forge.materialName(total) });
+      : T('forge.hint', { item: Forge.matName(state.checkedDays.length) });
     el.classList.toggle('warn', noCredit);
   }
 
@@ -903,11 +903,11 @@
   function renderForgeLegend() {
     const el = $('carveLegend');
     if (!el) return;
-    const carve = Forge.STAGES.map((s) => T(s[1]) + '(' + s[0] + ')').join(' → ');
+    const shapes = Forge.SHAPES.map((s) => T(s.key) + '(' + s.at + ')').join(' → ');
     const mats = Forge.MATERIALS.map((m) => T(m.key) + '(' + m.at + ')').join(' → ');
     const step = Forge.CARVE_STEP;
     const c = state.carve;
-    const lines = [T('forge.legendCarve', { ladder: carve }), T('forge.legendMat', { ladder: mats })];
+    const lines = [T('forge.legendShape', { ladder: shapes }), T('forge.legendMat', { ladder: mats })];
     lines.push(c && (c.count || 0) >= Forge.CARVE_TOTAL
       ? T('forge.workDone', { name: c.name || '' })
       : T('forge.legendWork', { a: step, b: step * 2, c: step * 3 }));
@@ -1004,7 +1004,7 @@
     let title, body;
     if (isEnd) { title = T('carve.m150Title'); body = T('carve.m150Body', { name: name }); }
     else if (n >= 2 * step) { title = T('carve.m100Title'); body = T('carve.m100Body', { name: name, n: step }); }
-    else { title = T('carve.m50Title'); body = T('carve.m50Body', { name: name, n: step, mat: Forge.materialName(combinedStrikes()) }); }
+    else { title = T('carve.m50Title'); body = T('carve.m50Body', { name: name, n: step, mat: Forge.matName(state.checkedDays.length) }); }
     openModal(title, `
       <p>${body}</p>
       <div class="modal-row" style="flex-direction:column;gap:8px">
@@ -1369,7 +1369,7 @@
       toast(T('toast.noCredit'));
       return;
     }
-    const before = Forge.materialId(combinedStrikes());
+    const before = Forge.shapeId(combinedStrikes());
     state.credit -= 1;
     state.strikes += 1;
     state.strikesUpdatedAt = Date.now();
@@ -1377,13 +1377,13 @@
     schedulePush();
     renderForgeStats();
     Forge.strike();
-    // 这一下刚好把材料敲升级了：等锤子落下时来一波庆祝
-    const after = Forge.materialId(combinedStrikes());
+    // 这一下刚好把形状敲升级了：等锤子落下时来一波庆祝
+    const after = Forge.shapeId(combinedStrikes());
     if (after !== before) {
       setTimeout(() => {
         confetti();
         Forge.chime();
-        toast(T('forge.tierUp', { item: Forge.materialName(combinedStrikes()) }), 3200);
+        toast(T('forge.tierUp', { item: Forge.shapeName(combinedStrikes()) }), 3200);
       }, 380);
     }
   }
