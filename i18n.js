@@ -54,7 +54,7 @@
       'today.add': '添加',
       'today.label': '{y}年{m}月{d}日 周{w}',
 
-      'list.emptyMine': '还没有安排，先添加一项吧 📝',
+      'list.emptyMine': '还没有安排，先添加一项吧 📝（每天零点自动清空）',
       'list.emptyBuddy': '好友还没有添加安排',
       'list.noPair': '配对后即可看到好友的安排',
       'list.missed': '⏰ 超时未完成',
@@ -180,6 +180,7 @@
       'toast.newBuddy': '已与新的好友「{u}」配对',
       'toast.sameName': '注意：你和好友使用了相同的用户名',
       'toast.noCredit': '还没有敲击机会 —— 完成安排并双方打卡后就能敲石头啦 ⛏️',
+      'toast.dayClear': '🌅 新的一天，昨天的安排已经清空，重新安排今天要做的吧',
       'toast.storageFull': '⚠️ 浏览器本地存储快写满了：这次的改动可能没保存。建议先去「用户详情 → 备份账号」，再清理一下浏览器数据',
       'toast.renderFail': '界面加载出错：{e}（数据没丢，可以刷新重试；一直出现的话请截图反馈）',
       'toast.missedLock': '⏰ 该任务已超时，算未完成，不能勾选',
@@ -348,7 +349,7 @@
       'today.add': 'Add',
       'today.label': '{w}, {m}/{d}/{y}',
 
-      'list.emptyMine': 'No tasks yet — add one 📝',
+      'list.emptyMine': 'No tasks yet — add one 📝 (cleared every midnight)',
       'list.emptyBuddy': "Your buddy hasn't added any tasks",
       'list.noPair': "Pair up to see your buddy's plan",
       'list.missed': '⏰ Expired',
@@ -474,6 +475,7 @@
       'toast.newBuddy': 'Paired with new buddy "{u}"',
       'toast.sameName': 'Heads-up: you and your buddy share the same username',
       'toast.noCredit': 'No strikes yet — both finish your plans and check in to knock the stone ⛏️',
+      'toast.dayClear': '🌅 New day — yesterday\'s plan was cleared. Set up today\'s tasks.',
       'toast.storageFull': '⚠️ Local storage is nearly full — this change may not be saved. Back up your account first (Account → Back up), then clear some browser data',
       'toast.renderFail': 'Screen failed to load: {e} (your data is safe — try refreshing; send a screenshot if it keeps happening)',
       'toast.missedLock': '⏰ This task expired — it counts as unfinished and cannot be checked',

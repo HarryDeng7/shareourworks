@@ -54,6 +54,7 @@
       account: { username: u, salt: '', hash: '' },
       schedule: [],
       scheduleUpdatedAt: Date.now(),
+      scheduleDay: '',
       completions: {},
       completionsUpdatedAt: Date.now(),
       checkedDays: [],
@@ -85,6 +86,7 @@
         if (!s.syncStat || typeof s.syncStat.ok !== 'number') {
           s.syncStat = { ok: 0, fail: 0, lastOk: 0, lastFail: 0, log: [] };
         }
+        if (typeof s.scheduleDay !== 'string') s.scheduleDay = '';
         if (typeof s.carveCredit !== 'number') s.carveCredit = 0;
         if (typeof s.carveDay !== 'string') s.carveDay = '';
         if (!s.carve || typeof s.carve !== 'object' || !s.carve.obj || !s.carve.sil
@@ -712,6 +714,26 @@
       y: d.getFullYear(), m: d.getMonth() + 1, d: d.getDate(), w: weeks[d.getDay()],
     });
   }
+  /* 每天清空「我的安排」：新的一天从空白开始（老账号第一次升级时保留当天列表，第二天起自动清） */
+  function rollDailyTasks(quiet) {
+    if (!state) return false;
+    const t = todayStr();
+    if (state.scheduleDay === t) return false;
+    if (!state.scheduleDay) {
+      state.scheduleDay = t;
+      saveState();
+      return false;
+    }
+    const had = state.schedule.length;
+    state.schedule = [];
+    state.scheduleDay = t;
+    state.scheduleUpdatedAt = Date.now(); // 时间戳要往前推，好友那边才会接受这份空安排
+    saveState();
+    schedulePush();
+    if (had && !quiet) toast(T('toast.dayClear'), 5200);
+    return true;
+  }
+
   function addItem() {
     const text = $('newItemText').value.trim();
     if (!text) { $('newItemText').focus(); return; }
@@ -2048,6 +2070,7 @@
 
     // 渲染出错也绝不能把人留在登录页：先撑开界面，再把问题说出来
     try {
+      rollDailyTasks(); // 隔天再打开：先把昨天剩的安排清掉，并提示一声
       Forge.init($('forgeScene'), onStoneClick);
       renderAll();
       awardCarve();
@@ -2063,10 +2086,11 @@
     }, 5000);
     // 限时倒计时秒级刷新 + 到点自动标记超时
     cdTickTimer = setInterval(tickCountdowns, 1000);
-    // 跨天自动刷新
+    // 跨天自动刷新：顺手清空昨天的安排
     setInterval(() => {
       if (state && todayStr() !== lastToday) {
         lastToday = todayStr();
+        rollDailyTasks();
         renderAll();
         awardCarve();
       }
