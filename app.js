@@ -98,9 +98,18 @@
     return s;
   }
 
+  let storageWarned = false;
   function saveState() {
     if (!state) return;
-    localStorage.setItem(stateKey(state.account.username), JSON.stringify(state));
+    try {
+      localStorage.setItem(stateKey(state.account.username), JSON.stringify(state));
+    } catch (e) {
+      // 浏览器本地存储写满时不能把整个功能卡死：提示一次，界面继续可用
+      if (!storageWarned) {
+        storageWarned = true;
+        toast(T('toast.storageFull'), 7000);
+      }
+    }
   }
 
   function randomHex(len) {
@@ -207,10 +216,11 @@
       let s;
       try { s = JSON.parse(raw); } catch (e) { err.textContent = T('err.dataBroken'); return; }
       if (!s.account || s.account.hash !== hashStr(s.account.salt + ':' + p)) { err.textContent = T('err.passWrong'); return; }
-      // 登录成功顺手补存明文（仅本地）：旧账号下次登录后，详情里也能直接看到密码
+      // 登录成功顺手补存明文（仅本地）：旧账号下次登录后，详情里也能直接看到密码。
+      // 这里写不进去（隐私模式/存储写满）也绝不能挡住登录，否则点了按钮像没反应。
       if (!s.account.pwd) {
         s.account.pwd = p;
-        localStorage.setItem(stateKey(u), JSON.stringify(s));
+        try { localStorage.setItem(stateKey(u), JSON.stringify(s)); } catch (e) { }
       }
       login(u);
     }
@@ -2036,9 +2046,15 @@
     $('appView').classList.remove('hidden');
     $('userName').textContent = state.account.username;
 
-    Forge.init($('forgeScene'), onStoneClick);
-    renderAll();
-    awardCarve();
+    // 渲染出错也绝不能把人留在登录页：先撑开界面，再把问题说出来
+    try {
+      Forge.init($('forgeScene'), onStoneClick);
+      renderAll();
+      awardCarve();
+    } catch (e) {
+      if (window.console) console.error(e);
+      toast('⚠️ ' + T('toast.renderFail', { e: (e && e.message) ? e.message : String(e) }), 8000);
+    }
 
     heartbeatTimer = setInterval(() => { if (connOpen) send({ t: 'ping' }); }, 15000);
     // 周期同步：每 5 秒推一次最新进度（连接建立后生效），保证安排/超时状态及时到好友那边
