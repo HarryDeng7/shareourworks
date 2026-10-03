@@ -101,6 +101,7 @@
         <div class="stat-card"><span id="statMine">0</span><label data-i18n="forge.statMine">我敲了</label></div>
         <div class="stat-card"><span id="statBuddy">0</span><label data-i18n="forge.statBuddy">好友敲了</label></div>
         <div class="stat-card"><span id="statCredit">0</span><label data-i18n="forge.statCredit">我的敲击机会</label></div>
+        <div class="stat-card"><span id="statCarve">0</span><label data-i18n="forge.statCarve">我的雕刻机会</label></div>
         <div class="stat-card"><span id="statDays">0</span><label data-i18n="forge.statDays">已打卡天数</label></div>
       </div>
       <div class="panel forge-panel">
@@ -111,13 +112,21 @@
           <span id="carveText" class="muted"></span>
         </div>
         <p id="forgeHint" class="forge-hint">点击桌上的石头，石匠就会敲一下</p>
-        <div id="carveTools" class="carve-tools">
-          <div id="carveToolsHint" class="muted"></div>
-          <div id="carveToolsBtns" class="carve-btns hidden">
-            <button id="btnCarveImg" class="btn btn-sm" data-i18n="forge.upload">📷 上传图片</button>
-            <button id="btnCarveImgDel" class="btn btn-ghost btn-sm" data-i18n="forge.removeImg">移除图片</button>
-            <input id="carveImgFile" class="sr-only" type="file" accept="image/*">
+        <!-- 雕刻：完成自己今天的安排攒机会，一次一次把这块料雕成图片里的东西 -->
+        <div id="carveBox" class="carve-box">
+          <div class="carve-head">
+            <strong data-i18n="carve.title">🔪 雕刻</strong>
+            <span id="carveStageName" class="carve-chip"></span>
+            <span id="carveObjName" class="muted"></span>
           </div>
+          <div class="prog carve-prog"><div id="carveProg" class="prog-fill prog-fill-cyan"></div></div>
+          <div id="carveProgress" class="carve-line"></div>
+          <div id="carveStatus" class="muted carve-line"></div>
+          <div class="carve-btns">
+            <button id="btnCarve" class="btn btn-accent">🔪 雕刻一次</button>
+            <button id="btnCarvePick" class="btn">🖼 选物体</button>
+          </div>
+          <input id="carveImgFile" class="sr-only" type="file" accept="image/*">
         </div>
         <div id="carveLegend" class="carve-legend"></div>
       </div>

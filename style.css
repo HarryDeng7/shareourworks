@@ -559,10 +559,56 @@ input.item-text:focus { background: rgba(245, 158, 11, 0.1); box-shadow: 0 0 0 1
 }
 .lang-switch .btn.active { background: var(--accent); border-color: var(--accent); color: #1c1400; font-weight: 700; }
 
-/* ===== 自定义图片（打形阶段解锁） ===== */
-.carve-tools { margin-top: 12px; text-align: center; }
-.carve-btns { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+/* ===== 雕刻面板 ===== */
+.carve-box {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.35);
+  text-align: center;
+}
+.carve-head { display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.carve-head strong { font-size: 14px; }
+.carve-chip {
+  font-size: 12px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: rgba(34, 211, 238, 0.16);
+  border: 1px solid rgba(34, 211, 238, 0.4);
+  color: #67e8f9;
+}
+.carve-line { font-size: 12px; margin-top: 6px; min-height: 16px; }
+.carve-box .prog { margin-top: 6px; }
+.prog-fill-cyan { background: linear-gradient(90deg, #0891b2, #22d3ee); }
+.carve-btns { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 10px; }
+.carve-btns .btn { padding: 7px 16px; }
 .carve-legend { margin-top: 10px; font-size: 12px; line-height: 1.9; color: #64748b; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ===== 选物体：在图上拖框圈住物体 ===== */
+.crop-wrap { position: relative; margin: 10px 0; text-align: center; }
+.crop-canvas {
+  max-width: 100%;
+  display: block;
+  margin: 0 auto;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: #0b1220;
+  cursor: crosshair;
+  touch-action: none;
+}
+.crop-hint {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 13px;
+  pointer-events: none;
+}
+.crop-hint.hidden { display: none; }
 /* 只给读屏/程序保留的隐藏元素（display:none 的 file input 有些浏览器点不开） */
 .sr-only {
   position: absolute;

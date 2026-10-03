@@ -13,8 +13,7 @@
     [90, 'forge.stage4'],
     [150, 'forge.stage5'],
   ];
-  const CARVE_MAX = 150;  // 雕成杰作所需打卡天数
-  const UNLOCK_DAYS = 25; // 到「打形」就能上传图片自定义图案
+  const CARVE_MAX = 150;  // 石匠段位封顶（按打卡天数）
 
   /* 桌上的原材料：按「你和好友合计的敲击数」升级 */
   const MATERIALS = [
@@ -23,12 +22,15 @@
     { id: 'gold', at: 100, key: 'forge.mat.gold' },
     { id: 'diamond', at: 150, key: 'forge.mat.diamond' },
   ];
-  const SHAPE_OF = { stone: 'stone', iron: 'ingot', gold: 'ingot', diamond: 'gem' };
-  // 自定义图片的覆盖范围（viewBox 坐标），跟着材料轮廓走
-  const IMG_BOX = {
-    stone: { x: 280, y: 250, w: 100, h: 52 },
-    ingot: { x: 276, y: 266, w: 106, h: 38 },
-    gem: { x: 292, y: 262, w: 76, h: 44 },
+  // 雕刻：一次一次把这块料凿成图片里的物体（形状 50 次 → 上色 50 次 → 抛光 50 次）
+  const CARVE_STEP = 50;
+  const CARVE_TOTAL = 150;
+  const OBJ_BOX = { x: 268, y: 232, w: 124, h: 78 };   // 物体在桌面上的落位（viewBox 坐标）
+  const MASK_BOX = { x: 236, y: 196, w: 196, h: 150 }; // 蒙版范围（要盖住整块料）
+  // 雕出来的物体先用材料本色（金料出金船），三种材料各自的上色用渐变
+  const FILL_OF = {
+    stone: 'url(#stoneGrad)', iron: 'url(#ironGrad)',
+    gold: 'url(#goldGrad)', diamond: 'url(#gemGrad)',
   };
   // 每种材料的敲击特效：落锤点、光晕、火星、碎屑、叮字颜色
   const FX = {
@@ -79,6 +81,7 @@
       o.start(t); o.stop(t + dur + 0.02);
     },
     clink() { this.tone(1680, 520, 0.09, 0.22, 'triangle'); this.tone(840, 300, 0.06, 0.1, 'sine'); },
+    tick() { this.tone(2400, 1100, 0.05, 0.13, 'square'); },
     thud() { this.tone(95, 52, 0.12, 0.32, 'sine'); },
     chime() {
       this.tone(880, 880, 0.18, 0.16, 'triangle');
@@ -121,9 +124,22 @@
     <linearGradient id="gemGrad" x1="0" y1="0" x2="0.4" y2="1">
       <stop offset="0" stop-color="#e8f9ff"/><stop offset="0.45" stop-color="#7dd3fc"/><stop offset="1" stop-color="#0284c7"/>
     </linearGradient>
-    <clipPath id="clip-stone"><path d="M284,300 C281,268 302,252 330,252 C358,252 379,268 376,300 Z"/></clipPath>
-    <clipPath id="clip-ingot"><path d="M300,270 L360,270 L366,282 L378,302 L282,302 L294,282 Z"/></clipPath>
-    <clipPath id="clip-gem"><path d="M312,266 L348,266 L366,284 L330,302 L294,284 Z"/></clipPath>
+    <linearGradient id="glossGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="0.4" stop-color="#ffffff" stop-opacity="0.35"/>
+      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0.8"/>
+      <stop offset="0.6" stop-color="#ffffff" stop-opacity="0.15"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <!-- 物体轮廓遮罩：把上传图片抠出来的剪影当蒙版用 -->
+    <mask id="objMask" maskUnits="userSpaceOnUse" x="236" y="196" width="196" height="150">
+      <image id="objMaskImg" href="" x="268" y="232" width="124" height="78" preserveAspectRatio="xMidYMid meet"/>
+    </mask>
+    <!-- 块体遮罩：整块料（随雕刻次数变透明）+ 物体剪影（始终保留） -->
+    <mask id="blockMask" maskUnits="userSpaceOnUse" x="236" y="196" width="196" height="150">
+      <rect id="blockBase" x="236" y="196" width="196" height="150" fill="#ffffff"/>
+      <image id="blockSil" href="" x="268" y="232" width="124" height="78" preserveAspectRatio="xMidYMid meet"/>
+    </mask>
   </defs>
 
   <!-- 墙壁 -->
@@ -180,7 +196,11 @@
       <path d="M420,182 L436,202" stroke="#92400e" stroke-width="13" fill="none" stroke-linecap="round"/>
       <circle cx="420" cy="182" r="8.5" fill="#eab98a"/>
       <line x1="420" y1="182" x2="440" y2="160" stroke="#a16207" stroke-width="6" stroke-linecap="round"/>
-      <rect x="426" y="153" width="30" height="15" rx="4" fill="#94a3b8" stroke="#64748b" stroke-width="1.5" transform="rotate(48 441 160)"/>
+      <rect id="hammerHead" x="426" y="153" width="30" height="15" rx="4" fill="#94a3b8" stroke="#64748b" stroke-width="1.5" transform="rotate(48 441 160)"/>
+      <g id="chisel" class="hidden">
+        <line x1="419" y1="183" x2="443" y2="168" stroke="#78350f" stroke-width="5" stroke-linecap="round"/>
+        <path d="M441,165 L451,158 L456,164 L446,171 Z" fill="#cbd5e1" stroke="#64748b" stroke-width="1.2"/>
+      </g>
     </g>
   </g>
   <!-- 桌子 -->
@@ -193,44 +213,60 @@
   <!-- 桌上的原材料：石头 → 铁锭 → 金锭 → 钻石（按两人合计敲击数升级） -->
   <ellipse id="itemGlow" cx="330" cy="302" rx="58" ry="10" fill="#f59e0b" opacity="0.14"/>
   <g id="item" class="stone-hit" data-material="stone">
-    <g id="mat-stone">
-      <path d="M284,300 C281,268 302,252 330,252 C358,252 379,268 376,300 Z" fill="url(#stoneGrad)" stroke="#334155" stroke-width="2"/>
-      <ellipse cx="312" cy="270" rx="13" ry="5.5" fill="#94a3b8" opacity="0.35"/>
-      <ellipse cx="352" cy="265" rx="8" ry="4" fill="#94a3b8" opacity="0.22"/>
-    </g>
-    <g id="mat-iron" class="hidden">
-      <path d="M294,282 L366,282 L378,302 L282,302 Z" fill="url(#ironGrad)" stroke="#475569" stroke-width="2"/>
-      <path d="M300,270 L360,270 L366,282 L294,282 Z" fill="url(#ironTop)" stroke="#64748b" stroke-width="1.5"/>
-      <path d="M302,274 L358,274" stroke="#f8fafc" stroke-width="1.5" opacity="0.45" stroke-linecap="round"/>
-    </g>
-    <g id="mat-gold" class="hidden">
-      <path d="M294,282 L366,282 L378,302 L282,302 Z" fill="url(#goldGrad)" stroke="#92400e" stroke-width="2"/>
-      <path d="M300,270 L360,270 L366,282 L294,282 Z" fill="url(#goldTop)" stroke="#b45309" stroke-width="1.5"/>
-      <path d="M302,274 L358,274" stroke="#fffbeb" stroke-width="1.5" opacity="0.6" stroke-linecap="round"/>
-    </g>
-    <g id="mat-diamond" class="hidden">
-      <path d="M312,266 L348,266 L366,284 L330,302 L294,284 Z" fill="url(#gemGrad)" stroke="#0369a1" stroke-width="2"/>
-      <path d="M312,266 L348,266 L336,284 L324,284 Z" fill="#ffffff" opacity="0.3"/>
-      <g stroke="#e0f7ff" stroke-width="1.2" opacity="0.7" fill="none">
-        <path d="M294,284 L366,284"/>
-        <path d="M312,266 L324,284"/><path d="M348,266 L336,284"/>
-        <path d="M324,284 L330,302"/><path d="M336,284 L330,302"/>
-        <path d="M294,284 L330,302"/><path d="M366,284 L330,302"/>
+    <!-- #piece 是「这块料整体」：雕刻时用蒙版把块体一点点凿掉，只留下物体的轮廓 -->
+    <g id="piece">
+      <g id="mat-stone">
+        <path d="M284,300 C281,268 302,252 330,252 C358,252 379,268 376,300 Z" fill="url(#stoneGrad)" stroke="#334155" stroke-width="2"/>
+        <ellipse cx="312" cy="270" rx="13" ry="5.5" fill="#94a3b8" opacity="0.35"/>
+        <ellipse cx="352" cy="265" rx="8" ry="4" fill="#94a3b8" opacity="0.22"/>
       </g>
-      <g stroke="#f0f9ff" stroke-width="2" stroke-linecap="round">
-        <path class="gem-spark" d="M354,246 L354,236 M349,241 L359,241"/>
-        <path class="gem-spark d2" d="M296,262 L296,254 M292,258 L300,258"/>
+      <g id="mat-iron" class="hidden">
+        <path d="M294,282 L366,282 L378,302 L282,302 Z" fill="url(#ironGrad)" stroke="#475569" stroke-width="2"/>
+        <path d="M300,270 L360,270 L366,282 L294,282 Z" fill="url(#ironTop)" stroke="#64748b" stroke-width="1.5"/>
+        <path d="M302,274 L358,274" stroke="#f8fafc" stroke-width="1.5" opacity="0.45" stroke-linecap="round"/>
       </g>
-    </g>
-    <!-- 上传的图片刻在材料上（打形阶段解锁） -->
-    <g id="engrave" class="hidden" style="isolation:isolate">
-      <image id="engraveTint" x="0" y="0" width="0" height="0" preserveAspectRatio="xMidYMid slice" style="mix-blend-mode:luminosity"/>
-      <image id="engraveColor" x="0" y="0" width="0" height="0" preserveAspectRatio="xMidYMid slice"/>
-    </g>
-    <g id="cracks" stroke="#0f172a" stroke-width="2.4" fill="none" stroke-linecap="round" opacity="0">
-      <path d="M308,262 L316,278 L311,292"/>
-      <path d="M340,258 L333,274 L344,288"/>
-      <path d="M322,296 L316,301"/>
+      <g id="mat-gold" class="hidden">
+        <path d="M294,282 L366,282 L378,302 L282,302 Z" fill="url(#goldGrad)" stroke="#92400e" stroke-width="2"/>
+        <path d="M300,270 L360,270 L366,282 L294,282 Z" fill="url(#goldTop)" stroke="#b45309" stroke-width="1.5"/>
+        <path d="M302,274 L358,274" stroke="#fffbeb" stroke-width="1.5" opacity="0.6" stroke-linecap="round"/>
+      </g>
+      <g id="mat-diamond" class="hidden">
+        <path d="M312,266 L348,266 L366,284 L330,302 L294,284 Z" fill="url(#gemGrad)" stroke="#0369a1" stroke-width="2"/>
+        <path d="M312,266 L348,266 L336,284 L324,284 Z" fill="#ffffff" opacity="0.3"/>
+        <g stroke="#e0f7ff" stroke-width="1.2" opacity="0.7" fill="none">
+          <path d="M294,284 L366,284"/>
+          <path d="M312,266 L324,284"/><path d="M348,266 L336,284"/>
+          <path d="M324,284 L330,302"/><path d="M336,284 L330,302"/>
+          <path d="M294,284 L330,302"/><path d="M366,284 L330,302"/>
+        </g>
+        <g stroke="#f0f9ff" stroke-width="2" stroke-linecap="round">
+          <path class="gem-spark" d="M354,246 L354,236 M349,241 L359,241"/>
+          <path class="gem-spark d2" d="M296,262 L296,254 M292,258 L300,258"/>
+        </g>
+      </g>
+      <!-- 凿痕：雕刻过程中越来越明显，块体被凿掉后自然消失 -->
+      <g id="chisels" stroke="#0b1220" stroke-width="1.8" fill="none" stroke-linecap="round" opacity="0">
+        <path d="M296,276 L312,286"/>
+        <path d="M330,258 L338,272"/>
+        <path d="M352,278 L362,286"/>
+        <path d="M314,296 L332,300"/>
+      </g>
+      <!-- 雕出来的物体：先按材料本色出形状（金料雕出金船），再上色，最后抛光 -->
+      <rect id="carveFill" class="hidden" x="268" y="232" width="124" height="78" fill="url(#stoneGrad)" mask="url(#objMask)"/>
+      <image id="carveCol" class="hidden" href="" x="268" y="232" width="124" height="78" preserveAspectRatio="xMidYMid meet" mask="url(#objMask)"/>
+      <g id="carveGloss" class="hidden" mask="url(#objMask)">
+        <path d="M268,312 L352,226 L382,226 L298,312 Z" fill="url(#glossGrad)" style="mix-blend-mode:screen"/>
+        <g stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" style="mix-blend-mode:screen">
+          <path class="gem-spark" d="M364,242 L364,230 M358,236 L370,236"/>
+          <path class="gem-spark d2" d="M290,272 L290,262 M285,267 L295,267"/>
+          <path class="gem-spark d3" d="M330,224 L330,216 M326,220 L334,220"/>
+        </g>
+      </g>
+      <g id="cracks" stroke="#0f172a" stroke-width="2.4" fill="none" stroke-linecap="round" opacity="0">
+        <path d="M308,262 L316,278 L311,292"/>
+        <path d="M340,258 L333,274 L344,288"/>
+        <path d="M322,296 L316,301"/>
+      </g>
     </g>
   </g>
   <ellipse cx="330" cy="301" rx="66" ry="9" fill="#000" opacity="0.25"/>
@@ -243,12 +279,21 @@
     svg: null,
     armEl: null,
     itemEl: null,
+    pieceEl: null,
     glowEl: null,
     cracksEl: null,
-    engraveEl: null,
-    engraveTint: null,
-    engraveColor: null,
-    engraveSrc: '',
+    chiselsEl: null,
+    carveFill: null,
+    carveCol: null,
+    carveGloss: null,
+    objMaskImg: null,
+    blockBase: null,
+    blockSil: null,
+    hammerEl: null,
+    chiselEl: null,
+    work: null,
+    carveObjSrc: '',
+    carveSilSrc: '',
     material: '',
     myDays: 0,
     painted: false,
@@ -265,11 +310,18 @@
       this.svg = svg;
       this.armEl = svg.querySelector('#armR');
       this.itemEl = svg.querySelector('#item');
+      this.pieceEl = svg.querySelector('#piece');
       this.glowEl = svg.querySelector('#itemGlow');
       this.cracksEl = svg.querySelector('#cracks');
-      this.engraveEl = svg.querySelector('#engrave');
-      this.engraveTint = svg.querySelector('#engraveTint');
-      this.engraveColor = svg.querySelector('#engraveColor');
+      this.chiselsEl = svg.querySelector('#chisels');
+      this.carveFill = svg.querySelector('#carveFill');
+      this.carveCol = svg.querySelector('#carveCol');
+      this.carveGloss = svg.querySelector('#carveGloss');
+      this.objMaskImg = svg.querySelector('#objMaskImg');
+      this.blockBase = svg.querySelector('#blockBase');
+      this.blockSil = svg.querySelector('#blockSil');
+      this.hammerEl = svg.querySelector('#hammerHead');
+      this.chiselEl = svg.querySelector('#chisel');
 
       // 手臂动画需要以肩部为原点（viewBox 坐标系）
       this.armEl.style.transformBox = 'view-box';
@@ -311,13 +363,13 @@
         });
         this.glowEl.setAttribute('fill', fx.glow);
         this.glowEl.setAttribute('opacity', String(fx.glowOp));
-        this.engraveEl.setAttribute('clip-path', 'url(#clip-' + SHAPE_OF[mat.id] + ')');
-        this.syncEngrave();
         if (this.painted) this.morph();
       }
       // 石头阶段：越接近「铁锭」裂纹越明显
       this.cracksEl.style.opacity =
         (mat.id === 'stone' ? Math.min(1, total / MATERIALS[1].at) * 0.85 : 0).toFixed(3);
+
+      this.syncCarve(mat);
 
       const st = stageOf(myDays);
       const bar = document.getElementById('carveBar');
@@ -333,31 +385,50 @@
       this.painted = true;
     },
 
-    /* 自定义图片：刻在当前材料上（打形阶段解锁，越往后越清晰） */
-    setEngrave(url) {
-      this.engraveSrc = url || '';
-      this.syncEngrave();
+    /* 雕刻用的两张图：物体本色图 + 白色剪影（只在变化时改 href） */
+    setCarve(c) {
+      this.work = (c && c.obj && c.sil) ? c : null;
+      const obj = this.work ? this.work.obj : '';
+      const sil = this.work ? this.work.sil : '';
+      if (obj !== this.carveObjSrc) {
+        this.carveObjSrc = obj;
+        if (obj) this.carveCol.setAttribute('href', obj);
+        else this.carveCol.removeAttribute('href');
+      }
+      if (sil !== this.carveSilSrc) {
+        this.carveSilSrc = sil;
+        [this.objMaskImg, this.blockSil].forEach((el) => {
+          if (sil) {
+            el.setAttribute('href', sil);
+            try { el.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', sil); } catch (e) { }
+          } else {
+            el.removeAttribute('href');
+          }
+        });
+      }
     },
 
-    syncEngrave() {
-      const box = IMG_BOX[SHAPE_OF[this.material] || 'stone'];
-      const show = !!this.engraveSrc && this.myDays >= UNLOCK_DAYS;
-      this.engraveEl.classList.toggle('hidden', !show);
-      if (!show) return;
-      const span = CARVE_MAX - UNLOCK_DAYS;
-      const p = Math.min(1, Math.max(0, (this.myDays - UNLOCK_DAYS) / (span || 1)));
-      [this.engraveTint, this.engraveColor].forEach((el) => {
-        el.setAttribute('x', box.x);
-        el.setAttribute('y', box.y);
-        el.setAttribute('width', box.w);
-        el.setAttribute('height', box.h);
-        if (el.getAttribute('href') !== this.engraveSrc) {
-          el.setAttribute('href', this.engraveSrc);
-          try { el.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', this.engraveSrc); } catch (e) { }
-        }
-      });
-      this.engraveTint.setAttribute('opacity', (0.6 + 0.32 * p).toFixed(3));
-      this.engraveColor.setAttribute('opacity', (0.34 + 0.26 * p).toFixed(3));
+    /* 按雕刻次数摆布局：块体一点点被凿掉 → 物体本色 → 上色 → 抛光 */
+    syncCarve(mat) {
+      const c = this.work;
+      const n = c ? Math.max(0, Math.min(CARVE_TOTAL, c.count || 0)) : 0;
+      const has = !!c;
+      const pShape = has ? Math.min(1, n / CARVE_STEP) : 0;
+      const pPaint = has ? Math.min(1, Math.max(0, (n - CARVE_STEP) / CARVE_STEP)) : 0;
+      const pPolish = has ? Math.min(1, Math.max(0, (n - 2 * CARVE_STEP) / CARVE_STEP)) : 0;
+      // 块体遮罩：块体随进度变透明；物体剪影那一块始终保留，于是最后只剩物体
+      if (has && n > 0) this.pieceEl.setAttribute('mask', 'url(#blockMask)');
+      else this.pieceEl.removeAttribute('mask');
+      this.blockBase.setAttribute('opacity', (1 - pShape).toFixed(3));
+      this.carveFill.classList.toggle('hidden', !has);
+      this.carveFill.setAttribute('fill', FILL_OF[mat.id] || FILL_OF.stone);
+      this.carveFill.setAttribute('opacity', has ? (0.18 + 0.82 * pShape).toFixed(3) : '0');
+      this.carveCol.classList.toggle('hidden', !has || n < CARVE_STEP);
+      this.carveCol.setAttribute('opacity', pPaint.toFixed(3));
+      this.carveGloss.classList.toggle('hidden', !has || n < 2 * CARVE_STEP);
+      this.carveGloss.setAttribute('opacity', pPolish.toFixed(3));
+      const op = (!has || n <= 0 || n >= CARVE_STEP) ? 0 : 0.25 + 0.75 * Math.sin(Math.PI * pShape);
+      this.chiselsEl.style.opacity = op.toFixed(3);
     },
 
     /* 材料升级的那一瞬间：弹一下 + 光晕一圈 */
@@ -387,10 +458,18 @@
         { duration: 640, easing: 'ease-out' }
       ).onfinish = () => c.remove();
     },
+    /* 手上拿的是锤子还是凿子 */
+    setTool(t) {
+      const chisel = t === 'chisel';
+      if (this.hammerEl) this.hammerEl.classList.toggle('hidden', chisel);
+      if (this.chiselEl) this.chiselEl.classList.toggle('hidden', !chisel);
+    },
+
     /* 敲击动画 */
     async strike() {
       if (this.busy || !this.armEl) return false;
       this.busy = true;
+      this.setTool('hammer');
       try {
         // 1. 抡起锤子
         await this.animArm(-30, 130, 'ease-out');
@@ -406,6 +485,64 @@
         this.busy = false;
       }
       return true;
+    },
+
+    /* 雕刻动画：换成凿子连凿三下，碎屑往下掉 */
+    async carve() {
+      if (this.busy || !this.armEl) return false;
+      this.busy = true;
+      this.setTool('chisel');
+      try {
+        await this.animArm(-26, 130, 'ease-out');
+        for (let i = 0; i < 3; i++) {
+          this.animArm(62, 95, 'cubic-bezier(.2,1.7,.3,1)');
+          await sleep(70);
+          this.chipImpact();
+          sound.tick();
+          await sleep(90);
+          if (i < 2) await this.animArm(44, 110, 'ease-out');
+          await sleep(50);
+        }
+        await this.animArm(0, 420, 'ease-out');
+      } finally {
+        this.setTool('hammer');
+        this.busy = false;
+      }
+      return true;
+    },
+
+    /* 凿下来的碎屑（比敲击的火星更小更碎） */
+    chipImpact() {
+      const fx = FX[this.material] || FX.stone;
+      this.itemEl.animate(
+        [
+          { transform: 'translate(0,0) rotate(0)' },
+          { transform: 'translate(2px,-1px) rotate(0.8deg)' },
+          { transform: 'translate(-2px,1px) rotate(-0.8deg)' },
+          { transform: 'translate(0,0) rotate(0)' },
+        ],
+        { duration: 220, easing: 'ease-out' }
+      );
+      this.chiselsEl.animate([{ opacity: 1 }, { opacity: 0.3 }], { duration: 260 });
+      for (let i = 0; i < 6; i++) {
+        const a = Math.PI * (0.35 + 0.6 * Math.random()) * (i % 2 ? 1 : -1) - Math.PI / 2;
+        const d = 14 + Math.random() * 22;
+        const sz = 1.6 + Math.random() * 2.4;
+        const c = document.createElementNS(SVGNS, 'rect');
+        c.setAttribute('x', (fx.x - sz / 2).toFixed(2));
+        c.setAttribute('y', (fx.y - sz / 2).toFixed(2));
+        c.setAttribute('width', sz.toFixed(2));
+        c.setAttribute('height', sz.toFixed(2));
+        c.setAttribute('fill', i % 3 ? fx.debris : fx.sparks[0]);
+        this.svg.appendChild(c);
+        c.animate(
+          [
+            { transform: 'translate(0,0) rotate(0deg)', opacity: 1 },
+            { transform: 'translate(' + Math.cos(a) * d + 'px,' + (Math.sin(a) * d + 22) + 'px) rotate(220deg)', opacity: 0 },
+          ],
+          { duration: 430 + Math.random() * 220, easing: 'cubic-bezier(.1,.6,.3,1)' }
+        ).onfinish = () => c.remove();
+      }
     },
 
     animArm(toDeg, ms, easing) {
@@ -501,7 +638,9 @@
 
   Forge.MATERIALS = MATERIALS;
   Forge.STAGES = STAGES;
-  Forge.UNLOCK_DAYS = UNLOCK_DAYS;
+  Forge.CARVE_STEP = CARVE_STEP;
+  Forge.CARVE_TOTAL = CARVE_TOTAL;
+  Forge.OBJ_BOX = OBJ_BOX;
   Forge.materialId = function (total) { return materialOf(total).id; };
   Forge.materialName = function (total) { return T(materialOf(total).key); };
 

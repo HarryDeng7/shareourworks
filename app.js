@@ -61,6 +61,9 @@
       strikes: 0,
       strikesUpdatedAt: Date.now(),
       credit: 0,
+      carveCredit: 0,
+      carveDay: '',
+      carve: null,
       buddy: null,
       syncStat: { ok: 0, fail: 0, lastOk: 0, lastFail: 0, log: [] },
     };
@@ -82,6 +85,12 @@
         if (!s.syncStat || typeof s.syncStat.ok !== 'number') {
           s.syncStat = { ok: 0, fail: 0, lastOk: 0, lastFail: 0, log: [] };
         }
+        if (typeof s.carveCredit !== 'number') s.carveCredit = 0;
+        if (typeof s.carveDay !== 'string') s.carveDay = '';
+        if (!s.carve || typeof s.carve !== 'object' || !s.carve.obj || !s.carve.sil
+            || typeof s.carve.count !== 'number') s.carve = null;
+        else if (typeof s.carve.milestone !== 'number') s.carve.milestone = 0;
+        delete s.carveImg; // 旧版「刻在材料上的图片」已被雕刻系统取代
         return s;
       }
     } catch (e) { }
@@ -712,6 +721,7 @@
   function removeItem(id) {
     state.schedule = state.schedule.filter((i) => i.id !== id);
     state.scheduleUpdatedAt = Date.now();
+    awardCarve();
     const t = todayStr();
     if (state.completions[t]) {
       state.completions[t] = state.completions[t].filter((x) => x !== id);
@@ -743,6 +753,7 @@
     else arr.push(id);
     state.completionsUpdatedAt = Date.now();
     saveState();
+    awardCarve(); // 我自己的安排全部勾完 → 当天攒 1 次雕刻机会
     schedulePush();
     renderMySchedule();
     renderCheckin();
@@ -846,6 +857,7 @@
     state.checkedUpdatedAt = Date.now();
     state.credit += 1;
     saveState();
+    awardCarve();
     schedulePush();
     renderAll();
     confetti();
@@ -867,11 +879,12 @@
     $('statMine').textContent = state.strikes;
     $('statBuddy').textContent = b ? (b.strikes || 0) : 0;
     $('statCredit').textContent = state.credit;
+    $('statCarve').textContent = state.carveCredit || 0;
     $('statDays').textContent = myDays;
+    Forge.setCarve(state.carve);
     Forge.update({ total: total, myDays: myDays });
-    Forge.setEngrave(state.carveImg || '');
     renderForgeHint(total);
-    renderCarveTools(myDays);
+    renderCarvePanel();
     renderForgeLegend();
   }
 
@@ -892,91 +905,463 @@
     if (!el) return;
     const carve = Forge.STAGES.map((s) => T(s[1]) + '(' + s[0] + ')').join(' → ');
     const mats = Forge.MATERIALS.map((m) => T(m.key) + '(' + m.at + ')').join(' → ');
+    const step = Forge.CARVE_STEP;
+    const c = state.carve;
+    const lines = [T('forge.legendCarve', { ladder: carve }), T('forge.legendMat', { ladder: mats })];
+    lines.push(c && (c.count || 0) >= Forge.CARVE_TOTAL
+      ? T('forge.workDone', { name: c.name || '' })
+      : T('forge.legendWork', { a: step, b: step * 2, c: step * 3 }));
     el.textContent = '';
-    [T('forge.legendCarve', { ladder: carve }), T('forge.legendMat', { ladder: mats })].forEach((line) => {
+    lines.forEach((line) => {
       const div = document.createElement('div');
       div.textContent = line;
       el.appendChild(div);
     });
   }
 
-  // 上传图片：雕刻到「打形」（打卡 25 天）才解锁
-  function renderCarveTools(myDays) {
-    const hint = $('carveToolsHint');
-    const btns = $('carveToolsBtns');
-    if (!hint || !btns) return;
-    const unlocked = myDays >= Forge.UNLOCK_DAYS;
-    btns.classList.toggle('hidden', !unlocked);
-    if (!unlocked) {
-      hint.textContent = T('forge.locked', {
-        n: Forge.UNLOCK_DAYS,
-        stage: T('forge.stage2'),
-        left: Math.max(0, Forge.UNLOCK_DAYS - myDays),
-      });
-      return;
-    }
-    hint.textContent = state.carveImg ? T('forge.unlockedImg') : T('forge.unlockedNoImg');
-  }
+  /* ---------- 雕刻 ----------
+     机会：把自己今天的安排全部完成，当天 +1 次（与「敲击机会」分开）
+     过程：第一次选一个物体（上传图片 + 拖框圈住 + 自动抠背景），
+           之后每雕一次，这块料就被凿掉一点、越来越像那个物体：
+           形状 50 次 → 上色 50 次 → 抛光 50 次。雕的是桌上同一块料，所以金料最后是金船。 */
+  let cropImg = null;       // 选物体弹窗里已加载的图片
+  let cropName = '';        // 图片文件名（当作物体名）
+  let cropSel = null;       // 框选区域（画布像素坐标）
+  let cropDrag = null;
 
-  function pickCarveImage() {
-    if (state.checkedDays.length < Forge.UNLOCK_DAYS) {
-      toast(T('toast.carveImgLocked', { n: Forge.UNLOCK_DAYS }));
-      return;
-    }
-    $('carveImgFile').click();
-  }
-
-  function clearCarveImage() {
-    if (!state.carveImg) return;
-    delete state.carveImg;
+  // 我自己今天的安排全部完成 → 当天攒 1 次雕刻机会
+  function awardCarve() {
+    if (!state) return;
+    const t = todayStr();
+    if (state.carveDay === t) return;
+    const done = new Set(state.completions[t] || []);
+    if (!state.schedule.length || !state.schedule.every((i) => done.has(i.id))) return;
+    state.carveDay = t;
+    state.carveCredit = (state.carveCredit || 0) + 1;
     saveState();
-    Forge.setEngrave('');
+    toast(T('toast.carveAward'), 3200);
     renderForgeStats();
-    toast(T('toast.carveImgCleared'));
   }
 
-  // 读图 → 等比压到 320px 存成 dataURL（只存本机；同步快照里不带它）
-  function onCarveFile() {
+  // 雕刻面板：阶段名 / 进度 / 机会 / 按钮
+  function renderCarvePanel() {
+    const c = state.carve;
+    const bar = $('carveProg');
+    if (!bar) return;
+    const step = Forge.CARVE_STEP;
+    const total = Forge.CARVE_TOTAL;
+    const n = c ? Math.min(total, c.count || 0) : 0;
+    const stage = n >= 2 * step ? 2 : (n >= step ? 1 : 0);
+    const done = n >= total;
+    const pending = !!c && n > 0 && n % step === 0 && (c.milestone || 0) < n;
+    $('carveStageName').textContent = c ? T('carve.stage' + stage) : T('carve.stage0');
+    $('carveObjName').textContent = c ? T('carve.objName', { name: c.name || '' }) : '';
+    bar.style.width = ((n / total) * 100).toFixed(1) + '%';
+    $('carveProgress').textContent = T('carve.progress', { n: n, max: total });
+    let msg;
+    if (!c) msg = T('carve.needObj');
+    else if (pending) msg = T('carve.milestoneTip', { name: c.name || '' });
+    else if (done) msg = T('carve.done');
+    else if (state.carveCredit <= 0) msg = T('carve.needCredit');
+    else msg = T('carve.credit', { n: state.carveCredit });
+    $('carveStatus').textContent = msg;
+    const btn = $('btnCarve');
+    const pick = $('btnCarvePick');
+    btn.disabled = !!c && !pending && (done || state.carveCredit <= 0);
+    btn.textContent = !c ? T('carve.btnPick') : (pending ? T('carve.btnChoose') : T('carve.btnCarve'));
+    pick.classList.toggle('hidden', !c);
+    pick.textContent = T('carve.btnChange');
+  }
+
+  // 雕一次
+  function onCarve() {
+    const c = state.carve;
+    if (!c) { openCarvePickModal(); return; }
+    const n0 = c.count || 0;
+    const step = Forge.CARVE_STEP;
+    if (n0 >= Forge.CARVE_TOTAL) { toast(T('carve.done')); return; }
+    if (n0 > 0 && n0 % step === 0 && (c.milestone || 0) < n0) { openCarveMilestoneModal(); return; }
+    if (state.carveCredit <= 0) { toast(T('carve.needCredit'), 3200); return; }
+    state.carveCredit -= 1;
+    c.count = n0 + 1;
+    saveState();
+    renderForgeStats();
+    Forge.carve();
+    toast(T('toast.carveOnce', { n: c.count }));
+    if (c.count % step === 0) {
+      setTimeout(() => { confetti(); Forge.chime(); openCarveMilestoneModal(); }, 560);
+    }
+  }
+
+  // 50 / 100 / 150 次：换物体，还是继续往下一阶段
+  function openCarveMilestoneModal() {
+    const c = state.carve;
+    if (!c) return;
+    const step = Forge.CARVE_STEP;
+    const n = c.count || 0;
+    const name = escapeHtml(c.name || '');
+    const isEnd = n >= 3 * step;
+    let title, body;
+    if (isEnd) { title = T('carve.m150Title'); body = T('carve.m150Body', { name: name }); }
+    else if (n >= 2 * step) { title = T('carve.m100Title'); body = T('carve.m100Body', { name: name, n: step }); }
+    else { title = T('carve.m50Title'); body = T('carve.m50Body', { name: name, n: step, mat: Forge.materialName(combinedStrikes()) }); }
+    openModal(title, `
+      <p>${body}</p>
+      <div class="modal-row" style="flex-direction:column;gap:8px">
+        <button id="btnCarveNext" class="btn btn-accent btn-block">${escapeHtml(isEnd ? T('carve.btnKeep') : T('carve.btnNext', { n: step }))}</button>
+        <button id="btnCarveReplace" class="btn btn-block">${escapeHtml(T('carve.btnReplace'))}</button>
+        <button id="btnCarveLater" class="btn btn-ghost btn-block">${escapeHtml(T('carve.cancel'))}</button>
+      </div>`);
+    $('btnCarveNext').onclick = () => {
+      c.milestone = n;
+      saveState();
+      closeModal();
+      renderForgeStats();
+      if (isEnd) { confetti(); toast(T('carve.keepToast', { name: c.name || '' }), 3600); }
+      else toast(T('carve.nextToast', { stage: T('carve.stage' + Math.min(2, n / step)), n: step }), 3200);
+    };
+    $('btnCarveReplace').onclick = () => { closeModal(); openCarvePickModal(); };
+    $('btnCarveLater').onclick = closeModal;
+  }
+
+  // 已经有进度时换物体要先确认（会从头开始雕）
+  function askReplaceCarve() {
+    const n = state.carve ? (state.carve.count || 0) : 0;
+    if (!n) { openCarvePickModal(); return; }
+    openModal(T('carve.replaceTitle'), `
+      <p>${escapeHtml(T('carve.replaceBody', { n: n }))}</p>
+      <div class="modal-row">
+        <button id="btnReplaceGo" class="btn btn-accent btn-block">${escapeHtml(T('carve.btnReplace'))}</button>
+        <button id="btnReplaceCancel" class="btn btn-ghost btn-block">${escapeHtml(T('carve.cancel'))}</button>
+      </div>`);
+    $('btnReplaceGo').onclick = openCarvePickModal;
+    $('btnReplaceCancel').onclick = closeModal;
+  }
+
+  /* ---------- 选物体：上传图片 → 拖框圈住 → 自动抠背景 ---------- */
+  function openCarvePickModal() {
+    cropSel = null;
+    cropDrag = null;
+    openModal(T('carve.pickTitle'), `
+      <p class="muted">${escapeHtml(T('carve.pickIntro'))}</p>
+      <div class="crop-wrap">
+        <canvas id="cropCanvas" class="crop-canvas"></canvas>
+        <div id="cropHintBox" class="crop-hint"></div>
+      </div>
+      <div class="modal-row"><button id="btnCropFile" class="btn btn-accent">${escapeHtml(T('carve.pickFile'))}</button></div>
+      <div class="modal-row">
+        <button id="btnCropUse" class="btn btn-accent" disabled>${escapeHtml(T('carve.pickUse'))}</button>
+        <button id="btnCropWhole" class="btn" disabled>${escapeHtml(T('carve.pickWhole'))}</button>
+        <button id="btnCropCancel" class="btn btn-ghost">${escapeHtml(T('carve.cancel'))}</button>
+      </div>
+      <div id="cropStatus" class="modal-status"></div>`);
+    $('btnCropFile').onclick = () => $('carveImgFile').click();
+    $('btnCropUse').onclick = () => useCrop(false);
+    $('btnCropWhole').onclick = () => useCrop(true);
+    $('btnCropCancel').onclick = closeModal;
+    const cv = $('cropCanvas');
+    if (cropImg) {
+      fitCropCanvas(cv, cropImg);
+      drawCrop();
+    } else {
+      cv.width = 320;
+      cv.height = 180;
+    }
+    $('cropHintBox').classList.toggle('hidden', !!cropImg);
+    $('cropHintBox').textContent = T('carve.pickEmpty');
+    updateCropButtons();
+    bindCropDrag(cv);
+  }
+
+  function fitCropCanvas(cv, img) {
+    const max = 420;
+    const k = Math.min(1, max / Math.max(img.width || max, img.height || max));
+    cv.width = Math.max(1, Math.round((img.width || max) * k));
+    cv.height = Math.max(1, Math.round((img.height || max) * k));
+  }
+
+  function bindCropDrag(cv) {
+    if (!cv) return;
+    const pos = (e) => {
+      const r = cv.getBoundingClientRect();
+      return {
+        x: Math.max(0, Math.min(cv.width, (e.clientX - r.left) * (cv.width / (r.width || 1)))),
+        y: Math.max(0, Math.min(cv.height, (e.clientY - r.top) * (cv.height / (r.height || 1)))),
+      };
+    };
+    cv.addEventListener('pointerdown', (e) => {
+      if (!cropImg) return;
+      e.preventDefault();
+      try { cv.setPointerCapture(e.pointerId); } catch (err) { }
+      const p = pos(e);
+      cropDrag = p;
+      cropSel = { x0: p.x, y0: p.y, x1: p.x, y1: p.y };
+      drawCrop();
+    });
+    cv.addEventListener('pointermove', (e) => {
+      if (!cropDrag) return;
+      e.preventDefault();
+      const p = pos(e);
+      cropSel.x1 = p.x;
+      cropSel.y1 = p.y;
+      drawCrop();
+    });
+    const end = () => {
+      if (!cropDrag) return;
+      cropDrag = null;
+      const s = normSel();
+      if (s && s.w < 10 && s.h < 10) cropSel = null; // 点一下当没选
+      drawCrop();
+      updateCropButtons();
+    };
+    cv.addEventListener('pointerup', end);
+    cv.addEventListener('pointercancel', end);
+  }
+
+  function normSel() {
+    if (!cropSel) return null;
+    const x = Math.min(cropSel.x0, cropSel.x1);
+    const y = Math.min(cropSel.y0, cropSel.y1);
+    return { x: x, y: y, w: Math.abs(cropSel.x1 - cropSel.x0), h: Math.abs(cropSel.y1 - cropSel.y0) };
+  }
+
+  function drawCrop() {
+    const cv = $('cropCanvas');
+    if (!cv || !cropImg) return;
+    const cx = cv.getContext('2d');
+    cx.clearRect(0, 0, cv.width, cv.height);
+    cx.drawImage(cropImg, 0, 0, cv.width, cv.height);
+    const s = normSel();
+    if (!s || (s.w < 1 && s.h < 1)) return;
+    cx.fillStyle = 'rgba(8,12,20,0.55)';
+    cx.fillRect(0, 0, cv.width, s.y);
+    cx.fillRect(0, s.y + s.h, cv.width, cv.height - s.y - s.h);
+    cx.fillRect(0, s.y, s.x, s.h);
+    cx.fillRect(s.x + s.w, s.y, cv.width - s.x - s.w, s.h);
+    cx.strokeStyle = '#22d3ee';
+    cx.lineWidth = 2;
+    cx.setLineDash([6, 4]);
+    cx.strokeRect(s.x + 1, s.y + 1, Math.max(0, s.w - 2), Math.max(0, s.h - 2));
+    cx.setLineDash([]);
+  }
+
+  function updateCropButtons() {
+    const s = normSel();
+    const ok = !!cropImg && !!s && s.w > 10 && s.h > 10;
+    const use = $('btnCropUse');
+    const whole = $('btnCropWhole');
+    if (use) use.disabled = !ok;
+    if (whole) whole.disabled = !cropImg;
+    const st = $('cropStatus');
+    if (st && ok) st.textContent = '';
+  }
+
+  function onCropFile() {
     const input = $('carveImgFile');
     const f = input.files && input.files[0];
     input.value = '';
     if (!f) return;
-    if (state.checkedDays.length < Forge.UNLOCK_DAYS) {
-      toast(T('toast.carveImgLocked', { n: Forge.UNLOCK_DAYS }));
-      return;
-    }
+    cropName = String(f.name || '').replace(/\.[^.]+$/, '').slice(0, 16) || T('common.object');
+    const st = $('cropStatus');
+    if (st) st.textContent = T('carve.pickReading');
     const reader = new FileReader();
     reader.onload = () => {
       const img = new Image();
       img.onload = () => {
-        try {
-          const max = 320;
-          const iw = img.width || max;
-          const ih = img.height || max;
-          const scale = Math.min(1, max / Math.max(iw, ih));
-          const w = Math.max(1, Math.round(iw * scale));
-          const h = Math.max(1, Math.round(ih * scale));
-          const cv = document.createElement('canvas');
-          cv.width = w;
-          cv.height = h;
-          const cx = cv.getContext('2d');
-          cx.fillStyle = '#243249';
-          cx.fillRect(0, 0, w, h);
-          cx.drawImage(img, 0, 0, w, h);
-          state.carveImg = cv.toDataURL('image/jpeg', 0.82);
-          saveState();
-          Forge.setEngrave(state.carveImg);
-          renderForgeStats();
-          toast(T('toast.carveImgSaved'));
-        } catch (e) {
-          toast(T('toast.carveImgFail'));
-        }
+        cropImg = img;
+        cropSel = null;
+        cropDrag = null;
+        const cv = $('cropCanvas');
+        if (!cv) return;
+        fitCropCanvas(cv, img);
+        drawCrop();
+        updateCropButtons();
+        $('cropHintBox').classList.add('hidden');
+        if ($('cropStatus')) $('cropStatus').textContent = T('carve.pickNeed');
       };
-      img.onerror = () => toast(T('toast.carveImgFail'));
+      img.onerror = () => { if ($('cropStatus')) $('cropStatus').textContent = T('carve.pickFail'); };
       img.src = String(reader.result || '');
     };
-    reader.onerror = () => toast(T('toast.carveImgFail'));
+    reader.onerror = () => { if ($('cropStatus')) $('cropStatus').textContent = T('carve.pickFail'); };
     reader.readAsDataURL(f);
+  }
+
+  function useCrop(whole) {
+    if (!cropImg) { toast(T('carve.pickEmpty')); return; }
+    const cv = $('cropCanvas');
+    const s = whole ? { x: 0, y: 0, w: cv.width, h: cv.height } : normSel();
+    if (!s || s.w < 9 || s.h < 9) { toast(T('carve.pickTooSmall')); return; }
+    const st = $('cropStatus');
+    if (st) st.textContent = T('carve.pickWorking');
+    // 先让「正在抠背景…」画出来，再干重活
+    setTimeout(() => {
+      try {
+        const out = cutObject(cv, s);
+        if (!out) { if ($('cropStatus')) $('cropStatus').textContent = T('carve.pickFail'); return; }
+        state.carve = { obj: out.obj, sil: out.sil, name: cropName || T('common.object'), count: 0, milestone: 0 };
+        saveState();
+        closeModal();
+        renderForgeStats();
+        toast(T('carve.pickDone', { name: state.carve.name }), 3200);
+      } catch (e) {
+        if ($('cropStatus')) $('cropStatus').textContent = T('carve.pickFail');
+      }
+    }, 40);
+  }
+
+  // 从画布上框选一块，抠掉背景，产出「物体本色图 + 白色剪影图」
+  function cutObject(cv, s) {
+    const x0 = Math.max(0, Math.round(s.x));
+    const y0 = Math.max(0, Math.round(s.y));
+    const w = Math.max(1, Math.min(cv.width - x0, Math.round(s.w)));
+    const h = Math.max(1, Math.min(cv.height - y0, Math.round(s.h)));
+    const px = cv.getContext('2d').getImageData(x0, y0, w, h).data;
+    let soft = null;
+    // 1) 图片本身带透明通道（已经抠好的 PNG）就直接用
+    let tr = 0;
+    for (let i = 3; i < px.length; i += 4) if (px[i] < 24) tr++;
+    if (tr > w * h * 0.08) {
+      soft = new Float32Array(w * h);
+      for (let p = 0; p < w * h; p++) soft[p] = px[p * 4 + 3] / 255;
+    } else {
+      // 2) 取边框颜色当中位背景色，从四边洪水填充，只抠与边框相连的背景
+      const m = floodBackground(px, w, h);
+      if (m) soft = featherMask(m, w, h);
+    }
+    // 3) 抠不动（背景太花 / 物体贴着边）就退化成圆角方块，保证一定能雕出东西
+    if (!soft) soft = roundedMask(w, h);
+    // 收紧到物体外接矩形
+    let minX = w, minY = h, maxX = -1, maxY = -1;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        if (soft[y * w + x] > 0.35) {
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+        }
+      }
+    }
+    if (maxX < 0) return null;
+    const bw = maxX - minX + 1;
+    const bh = maxY - minY + 1;
+    const k = Math.min(1, 220 / Math.max(bw, bh));
+    const ow = Math.max(1, Math.round(bw * k));
+    const oh = Math.max(1, Math.round(bh * k));
+    const colCv = document.createElement('canvas');
+    colCv.width = ow;
+    colCv.height = oh;
+    const cc = colCv.getContext('2d');
+    const colData = cc.createImageData(ow, oh);
+    const silCv = document.createElement('canvas');
+    silCv.width = ow;
+    silCv.height = oh;
+    const sc = silCv.getContext('2d');
+    const silData = sc.createImageData(ow, oh);
+    const cd = colData.data;
+    const sd = silData.data;
+    for (let y = 0; y < oh; y++) {
+      const sy = minY + Math.min(bh - 1, Math.floor(y / k));
+      for (let x = 0; x < ow; x++) {
+        const sx = minX + Math.min(bw - 1, Math.floor(x / k));
+        const sp = sy * w + sx;
+        const a = Math.round(Math.max(0, Math.min(1, soft[sp])) * 255);
+        const si = (y * ow + x) * 4;
+        const ci = sp * 4;
+        cd[si] = px[ci];
+        cd[si + 1] = px[ci + 1];
+        cd[si + 2] = px[ci + 2];
+        cd[si + 3] = a;
+        sd[si] = 255;
+        sd[si + 1] = 255;
+        sd[si + 2] = 255;
+        sd[si + 3] = a;
+      }
+    }
+    cc.putImageData(colData, 0, 0);
+    sc.putImageData(silData, 0, 0);
+    return { obj: colCv.toDataURL('image/png'), sil: silCv.toDataURL('image/png'), w: ow, h: oh };
+  }
+
+  // 洪水填充抠背景：和边框同色、且能从四边连过来的像素算背景
+  function floodBackground(px, w, h) {
+    const near = (function () {
+      const rs = [], gs = [], bs = [];
+      const take = (x, y) => {
+        const i = (y * w + x) * 4;
+        rs.push(px[i]); gs.push(px[i + 1]); bs.push(px[i + 2]);
+      };
+      for (let x = 0; x < w; x++) { take(x, 0); take(x, h - 1); }
+      for (let y = 0; y < h; y++) { take(0, y); take(w - 1, y); }
+      const med = (a) => { a.sort((p, q) => p - q); return a[a.length >> 1]; };
+      const br = med(rs), bg = med(gs), bb = med(bs);
+      return (i) => {
+        const dr = px[i] - br, dg = px[i + 1] - bg, db = px[i + 2] - bb;
+        return Math.sqrt(dr * dr + dg * dg + db * db) < 58;
+      };
+    })();
+    const seen = new Uint8Array(w * h);
+    const qx = new Int32Array(w * h);
+    const qy = new Int32Array(w * h);
+    let qs = 0, qe = 0;
+    const push = (x, y) => {
+      const p = y * w + x;
+      if (seen[p] || !near(p * 4)) return;
+      seen[p] = 1;
+      qx[qe] = x;
+      qy[qe] = y;
+      qe++;
+    };
+    for (let x = 0; x < w; x++) { push(x, 0); push(x, h - 1); }
+    for (let y = 0; y < h; y++) { push(0, y); push(w - 1, y); }
+    while (qs < qe) {
+      const x = qx[qs], y = qy[qs];
+      qs++;
+      if (x > 0) push(x - 1, y);
+      if (x < w - 1) push(x + 1, y);
+      if (y > 0) push(x, y - 1);
+      if (y < h - 1) push(x, y + 1);
+    }
+    const m = new Uint8Array(w * h);
+    let fg = 0;
+    for (let p = 0; p < w * h; p++) {
+      if (!seen[p]) { m[p] = 1; fg++; }
+    }
+    if (fg < w * h * 0.06) return null; // 抠得太干净，八成抠错了
+    return m;
+  }
+
+  // 边缘羽化一下，雕出来的边不会像刀切
+  function featherMask(m, w, h) {
+    const out = new Float32Array(w * h);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        let s = 0, c = 0;
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            const nx = x + dx, ny = y + dy;
+            if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+            s += m[ny * w + nx];
+            c++;
+          }
+        }
+        out[y * w + x] = s / c;
+      }
+    }
+    return out;
+  }
+
+  function roundedMask(w, h) {
+    const out = new Float32Array(w * h);
+    const rx = Math.max(2, w * 0.1);
+    const ry = Math.max(2, h * 0.1);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const e = Math.min(Math.min(x, w - 1 - x) / rx, Math.min(y, h - 1 - y) / ry);
+        out[y * w + x] = Math.min(1, Math.max(0, e));
+      }
+    }
+    return out;
   }
 
   function onStoneClick() {
@@ -1653,6 +2038,7 @@
 
     Forge.init($('forgeScene'), onStoneClick);
     renderAll();
+    awardCarve();
 
     heartbeatTimer = setInterval(() => { if (connOpen) send({ t: 'ping' }); }, 15000);
     // 周期同步：每 5 秒推一次最新进度（连接建立后生效），保证安排/超时状态及时到好友那边
@@ -1666,6 +2052,7 @@
       if (state && todayStr() !== lastToday) {
         lastToday = todayStr();
         renderAll();
+        awardCarve();
       }
     }, 30000);
 
@@ -1690,10 +2077,15 @@
     $('btnSyncStat').onclick = openSyncStatModal;
     document.querySelectorAll('.tab').forEach((b) => { b.onclick = () => switchView(b.dataset.view); });
 
-    // 石匠工坊：上传自定义图片（打形阶段解锁）
-    $('btnCarveImg').onclick = pickCarveImage;
-    $('btnCarveImgDel').onclick = clearCarveImage;
-    $('carveImgFile').onchange = onCarveFile;
+    // 石匠工坊：雕刻（攒机会 → 选物体 → 一次一次雕）
+    $('btnCarve').onclick = () => {
+      const c = state && state.carve;
+      const n = c ? (c.count || 0) : 0;
+      if (c && n > 0 && n % Forge.CARVE_STEP === 0 && (c.milestone || 0) < n) { openCarveMilestoneModal(); return; }
+      onCarve();
+    };
+    $('btnCarvePick').onclick = askReplaceCarve;
+    $('carveImgFile').onchange = onCropFile;
 
     // 今日安排
     $('btnAdd').onclick = addItem;
