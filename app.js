@@ -157,10 +157,6 @@
   // 轻量诊断日志（供 __smDebug 排查连接问题）
   let dbgLog = [];
   function dbgPush(x) { dbgLog.push(x); if (dbgLog.length > 12) dbgLog.shift(); }
-  // 手动直连相关状态（不依赖 0.peerjs.com 中转服务器）
-  let manualPc = null;      // 手动直连的 RTCPeerConnection
-  let manualActive = false; // 手动建连进行中/已建立，此时暂停云端自动重试避免互相干扰
-  let manualTimer = null;
 
   /* ---------- 提示 / 弹窗 ---------- */
   function toast(msg, ms) {
@@ -355,7 +351,6 @@
     clearTimeout(reconnectTimer);
     clearTimeout(peerWatchdog);
     peerWatchdog = null;
-    manualAbort();
     try { if (currentConn) currentConn.close(); } catch (e) { }
     try { if (peer) peer.destroy(); } catch (e) { }
     currentConn = null;
@@ -418,7 +413,7 @@
   // 创建方只要保持在线监听，好友上线后会自动拨号过来。
   function retryConnect() {
     if (!state || !state.buddy || !state.buddy.pairCode) return;
-    if (connOpen || manualActive) return;
+    if (connOpen) return;
     const code = state.buddy.pairCode;
     const role = state.buddy.role === 'host' ? 'host' : 'join';
     if (role === 'host') {
@@ -540,7 +535,7 @@
   function syncPair(opts) {
     opts = opts || {};
     if (!state || !state.buddy || !state.buddy.pairCode) return;
-    if (connOpen || manualActive) return;
+    if (connOpen) return;
     const code = state.buddy.pairCode;
     const role = state.buddy.role === 'host' ? 'host' : 'join';
     clearTimeout(peerWatchdog);
@@ -625,7 +620,7 @@
   }
 
   function dialBuddy(p, code, role, opts) {
-    if (manualActive || !state || !state.buddy || connOpen || !p || p.destroyed) return;
+    if (!state || !state.buddy || connOpen || !p || p.destroyed) return;
     dbgPush('dial');
     const conn = p.connect(buddyPeerId(code, role), { reliable: true });
     setupConn(conn, code, role, opts);
@@ -1335,7 +1330,7 @@
     if (!wrap.dataset.built) {
       wrap.dataset.built = '1';
       wrap.innerHTML = PEN_COLORS.map((c) => '<button class="pen" data-c="' + c + '" style="background:' + c + '"></button>').join('')
-        + '<button id="penErase" class="pen pen-erase">🧽</button>';
+        + '<button id="penErase" class="pen pen-erase" title="' + escapeHtml(T('paint.eraser')) + '">🧽</button>';
       wrap.querySelectorAll('.pen[data-c]').forEach((b) => {
         b.onclick = () => { penColor = b.dataset.c; penErase = false; markPens(); };
       });
@@ -2169,7 +2164,6 @@
       $('btnImport').onclick = openImportModal;
     } else {
       const online = buddyOnline();
-      const manualBtn = connOpen ? '' : '<button id="btnManual" class="btn btn-sm btn-accent">' + escapeHtml(T('pair.manual')) + '</button>';
       const since = b.lastSeen
         ? new Date(b.lastSeen).toLocaleTimeString(I18N.locale(), { hour: '2-digit', minute: '2-digit' })
         : T('common.never');
@@ -2182,14 +2176,12 @@
           <div class="pair-actions">
             <button id="btnExport" class="btn btn-sm">${escapeHtml(T('pair.export'))}</button>
             <button id="btnImport" class="btn btn-sm">${escapeHtml(T('pair.import'))}</button>
-            ${manualBtn}
             <button id="btnUnpair" class="btn btn-sm btn-danger">${escapeHtml(T('pair.unpair'))}</button>
           </div>
         </div>`;
       $('btnExport').onclick = openExportModal;
       $('btnImport').onclick = openImportModal;
       $('btnUnpair').onclick = unpair;
-      const mb = $('btnManual'); if (mb) mb.onclick = openManualModal;
     }
   }
   function openCreateModal() {
@@ -2287,179 +2279,6 @@
       toast(T('toast.unpaired'));
     };
   }
-  /* ---------- 手动直连（WebRTC 直连，不依赖任何中转服务器） ----------
-     原理：两端在浏览器里直接建立 WebRTC 连接，只把「连接邀请 / 应答」两段文本
-     通过微信/QQ 互发（复制粘贴），贴回后即建立实时通道。
-     适用于自动同步连不上（如 0.peerjs.com 不可达/被墙）的网络环境。 */
-  function manualAbort() {
-    manualActive = false;
-    clearTimeout(manualTimer);
-    manualTimer = null;
-    try { if (manualPc) manualPc.close(); } catch (e) { }
-    manualPc = null;
-  }
-  function manualPcNew() {
-    manualAbort();
-    if (!window.RTCPeerConnection) throw new Error(T('manual.errWebrtc'));
-    const pc = new RTCPeerConnection({ iceServers: PEER_OPT.config.iceServers });
-    manualPc = pc;
-    return pc;
-  }
-  function manualGather(pc) {
-    return new Promise((resolve) => {
-      let done = false;
-      const fin = () => { if (!done) { done = true; resolve(); } };
-      if (pc.iceGatheringState === 'complete') { fin(); return; }
-      pc.onicegatheringstatechange = () => { if (pc.iceGatheringState === 'complete') fin(); };
-      setTimeout(fin, 3500); // 兜底超时，用已收集到的候选继续
-    });
-  }
-  // 把 RTCDataChannel 包装成与现有连接对象一致的接口，直接复用 setupConn/handleMsg 同步逻辑
-  function manualWrapDc(dc) {
-    const conn = {
-      open: false,
-      hs: {},
-      on(ev, cb) { (this.hs[ev] = this.hs[ev] || []).push(cb); return this; },
-      emit(ev, arg) { (this.hs[ev] || []).forEach((cb) => { try { cb(arg); } catch (e) { } }); },
-      send(msg) { if (dc.readyState === 'open') { try { dc.send(JSON.stringify(msg)); } catch (e) { } } },
-      close() { try { dc.close(); } catch (e) { } }
-    };
-    dc.onopen = () => {
-      conn.open = true;
-      clearTimeout(manualTimer);
-      manualTimer = null;
-      conn.emit('open');
-    };
-    dc.onmessage = (ev) => {
-      try { conn.emit('data', JSON.parse(ev.data)); } catch (e) { }
-    };
-    dc.onclose = () => {
-      manualActive = false;
-      clearTimeout(manualTimer);
-      manualTimer = null;
-      const wasOpen = conn.open;
-      conn.open = false;
-      conn.emit('close');
-      try { if (manualPc) manualPc.close(); } catch (e) { }
-      manualPc = null;
-    };
-    dc.onerror = () => {
-      manualActive = false;
-      conn.open = false;
-      try { dc.close(); } catch (e) { }
-    };
-    return conn;
-  }
-  // 手动建连成功后暂停云端重试；45 秒没建立成功则自动放弃，交回云端自动重试
-  function manualArmWatchdog() {
-    manualActive = true;
-    clearTimeout(manualTimer);
-    manualTimer = setTimeout(() => {
-      if (!connOpen && manualActive) manualAbort();
-    }, 45000);
-  }
-  async function manualCreateOffer() {
-    if (!state || !state.buddy) throw new Error(T('manual.errNoBuddy'));
-    const code = state.buddy.pairCode;
-    const role = state.buddy.role === 'host' ? 'host' : 'join';
-    const pc = manualPcNew();
-    const dc = pc.createDataChannel('sm');
-    const conn = manualWrapDc(dc);
-    setupConn(conn, code, role);
-    manualArmWatchdog();
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    await manualGather(pc);
-    return 'SM2.O.' + b64u(pc.localDescription.sdp);
-  }
-  async function manualAnswerOffer(offerSdp) {
-    if (!state || !state.buddy) throw new Error(T('manual.errNoBuddy'));
-    const code = state.buddy.pairCode;
-    const role = state.buddy.role === 'host' ? 'host' : 'join';
-    const pc = manualPcNew();
-    pc.ondatachannel = (ev) => {
-      const conn = manualWrapDc(ev.channel);
-      setupConn(conn, code, role);
-    };
-    manualArmWatchdog();
-    await pc.setRemoteDescription({ type: 'offer', sdp: offerSdp });
-    const ans = await pc.createAnswer();
-    await pc.setLocalDescription(ans);
-    await manualGather(pc);
-    return 'SM2.A.' + b64u(pc.localDescription.sdp);
-  }
-  async function manualAcceptAnswer(answerSdp) {
-    if (!manualPc) throw new Error(T('manual.errNoOffer'));
-    await manualPc.setRemoteDescription({ type: 'answer', sdp: answerSdp });
-  }
-  function manualCopyText(t) {
-    const ta = document.createElement('textarea');
-    ta.value = t;
-    document.body.appendChild(ta);
-    ta.select();
-    try { document.execCommand('copy'); } catch (e) { }
-    document.body.removeChild(ta);
-    if (navigator.clipboard) navigator.clipboard.writeText(t).catch(() => { });
-  }
-  function openManualModal() {
-    if (connOpen) { toast(T('toast.alreadyConnected')); return; }
-    openModal(T('manual.title'), `
-      <p class="muted">${escapeHtml(T('manual.intro'))}</p>
-      <div class="muted" style="line-height:1.7">${T('manual.steps')}</div>
-      <textarea id="manualBox" class="modal-textarea" placeholder="${escapeHtml(T('manual.boxPh'))}" style="margin-top:10px"></textarea>
-      <div class="modal-row" style="flex-wrap:wrap">
-        <button id="btnManualOffer" class="btn btn-accent">${escapeHtml(T('manual.offer'))}</button>
-        <button id="btnManualAnswer" class="btn">${escapeHtml(T('manual.answer'))}</button>
-        <button id="btnManualGo" class="btn">${escapeHtml(T('manual.go'))}</button>
-        <button id="btnManualCancel" class="btn btn-ghost">${escapeHtml(T('manual.cancel'))}</button>
-      </div>
-      <div id="manualStatus" class="modal-status"></div>`);
-    const st = $('manualStatus');
-    const box = $('manualBox');
-    $('btnManualOffer').onclick = async () => {
-      st.textContent = T('manual.genOffer');
-      try {
-        const t = await manualCreateOffer();
-        box.value = t;
-        manualCopyText(t);
-        st.textContent = T('manual.offerOk');
-        toast(T('toast.inviteCopied'));
-      } catch (e) {
-        manualAbort();
-        st.textContent = T('manual.genFail', { e: String((e && e.message) || e) });
-      }
-    };
-    $('btnManualAnswer').onclick = async () => {
-      const raw = box.value.trim();
-      if (raw.indexOf('SM2.O.') !== 0) { st.textContent = T('manual.needOffer'); return; }
-      st.textContent = T('manual.genAnswer');
-      try {
-        const t = await manualAnswerOffer(b64d(raw.replace(/^SM2\.O\./, '')));
-        box.value = t;
-        manualCopyText(t);
-        st.textContent = T('manual.answerOk');
-        toast(T('toast.answerCopied'));
-      } catch (e) {
-        manualAbort();
-        st.textContent = T('manual.genFailFull', { e: String((e && e.message) || e) });
-      }
-    };
-    $('btnManualGo').onclick = async () => {
-      const raw = box.value.trim();
-      if (raw.indexOf('SM2.A.') !== 0) { st.textContent = T('manual.needAnswer'); return; }
-      st.textContent = T('manual.connecting');
-      try {
-        await manualAcceptAnswer(b64d(raw.replace(/^SM2\.A\./, '')));
-        st.textContent = T('manual.connOk');
-        setTimeout(() => { if (connOpen) closeModal(); }, 1200);
-      } catch (e) {
-        manualAbort();
-        st.textContent = T('manual.connFail', { e: String((e && e.message) || e) });
-      }
-    };
-    $('btnManualCancel').onclick = () => { manualAbort(); closeModal(); };
-  }
-
   /* ---------- 视图切换 / 渲染 ---------- */
   function switchView(name) {
     document.querySelectorAll('.tab').forEach((b) => b.classList.toggle('active', b.dataset.view === name));
