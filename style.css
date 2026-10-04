@@ -627,3 +627,43 @@ input.item-text:focus { background: rgba(245, 158, 11, 0.1); box-shadow: 0 0 0 1
 .gem-spark { animation: gemTwinkle 2.6s ease-in-out infinite; }
 .gem-spark.d2 { animation-delay: 0.8s; }
 .gem-spark.d3 { animation-delay: 1.6s; }
+
+/* ===== 可点开看详情的行（材质演化 / 雕刻过程） ===== */
+.clickable { cursor: pointer; border-radius: 10px; transition: background 0.15s ease; }
+.clickable:hover { background: rgba(148, 163, 184, 0.08); }
+.row-go { flex: none; color: var(--muted); font-size: 12px; }
+.prog-wrap { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.prog-wrap .prog { flex: 1; }
+
+/* ===== 材质演化弹窗 ===== */
+.mat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+.mat-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 4px 6px;
+  text-align: center;
+  background: rgba(15, 23, 42, 0.35);
+}
+.mat-card.on { border-color: var(--accent); background: rgba(245, 158, 11, 0.10); }
+.mat-pic { line-height: 0; }
+.mat-pic svg { max-width: 100%; height: auto; }
+.mat-name { font-size: 13px; font-weight: 700; margin-top: 4px; }
+.mat-days { font-size: 11px; color: var(--muted); }
+.mat-card.reached .mat-days { color: var(--accent); font-weight: 700; }
+.mat-left { font-size: 10px; color: #64748b; }
+
+/* ===== 雕刻过程弹窗 ===== */
+.stg-strip { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 10px; }
+.stg-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 6px 8px;
+  text-align: center;
+  background: rgba(15, 23, 42, 0.35);
+}
+.stg-card.on { border-color: var(--accent); background: rgba(245, 158, 11, 0.10); }
+.stg-pic { line-height: 0; }
+.stg-pic svg { max-width: 100%; height: auto; }
+.stg-name { font-size: 12px; font-weight: 700; margin-top: 6px; }
+.stg-n { font-size: 11px; color: var(--muted); }
+.pv { display: block; margin: 0 auto; }

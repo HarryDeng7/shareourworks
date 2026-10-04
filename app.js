@@ -1070,6 +1070,55 @@
     $('btnReplaceCancel').onclick = closeModal;
   }
 
+  /* ---------- 材质演化（点材质那一行打开）：六级材质的样子 + 需要的天数 ---------- */
+  function openMatLadderModal() {
+    const days = state.checkedDays.length;
+    const list = Forge.MATERIALS;
+    const curId = Forge.matId(days);
+    const ci = Math.max(0, list.findIndex((m) => m.id === curId));
+    const cards = list.map((m, i) => {
+      const on = m.id === curId;
+      const reached = days >= m.at;
+      const label = reached ? (on ? T('mat.now') : T('mat.done')) : T('mat.days', { n: m.at });
+      const left = reached ? '' : '<div class="mat-left">' + escapeHtml(T('mat.left', { n: m.at - days })) + '</div>';
+      return `<div class="mat-card${on ? ' on' : ''}${reached ? ' reached' : ''}">
+        <div class="mat-pic">${Forge.previewRock(i, 72)}</div>
+        <div class="mat-name">${escapeHtml(T(m.key))}</div>
+        <div class="mat-days">${escapeHtml(label)}</div>${left}</div>`;
+    }).join('');
+    const next = list[ci + 1] || null;
+    const note = next
+      ? T('mat.note', { name: T(list[ci].key), days: days, next: T(next.key), left: next.at - days })
+      : T('mat.noteDone', { name: T(list[ci].key), days: days });
+    openModal(T('mat.title'), `
+      <p class="muted">${escapeHtml(T('mat.intro'))}</p>
+      <div class="mat-grid">${cards}</div>
+      <p class="muted" style="margin-top:10px">${escapeHtml(note)}</p>
+      <p class="muted" style="margin-top:6px;font-size:12px">${escapeHtml(T('mat.shapeNote'))}</p>`);
+  }
+
+  /* ---------- 雕刻过程（点雕刻进度条打开）：石头 → 正方体 → 六面六色 → 亮面 ---------- */
+  function openCarveStageModal() {
+    const step = Forge.CARVE_STEP;
+    const c = state.carve;
+    const n = c ? Math.min(Forge.CARVE_TOTAL, c.count || 0) : 0;
+    const cur = n === 0 ? 0 : (n < step ? 1 : (n < 2 * step ? 2 : 3));
+    const mi = Math.max(0, Forge.MATERIALS.findIndex((m) => m.id === Forge.matId(state.checkedDays.length)));
+    const cells = [
+      { k: 0, n: 0, pic: Forge.previewRock(mi, 76), name: T('stg.s0') },
+      { k: 1, n: step, pic: Forge.previewCube(1, mi, 76), name: T('stg.s1') },
+      { k: 2, n: 2 * step, pic: Forge.previewCube(2, mi, 76), name: T('stg.s2') },
+      { k: 3, n: 3 * step, pic: Forge.previewCube(3, mi, 76), name: T('stg.s3') },
+    ].map((it) => `<div class="stg-card${it.k === cur ? ' on' : ''}">
+        <div class="stg-pic">${it.pic}</div>
+        <div class="stg-name">${escapeHtml(it.name)}</div>
+        <div class="stg-n">${escapeHtml(T('stg.times', { n: it.n }))}</div></div>`).join('');
+    openModal(T('stg.title'), `
+      <p class="muted">${escapeHtml(T('stg.intro'))}</p>
+      <div class="stg-strip">${cells}</div>
+      <p class="muted" style="margin-top:10px;font-size:12px">${escapeHtml(T('stg.note'))}</p>`);
+  }
+
   /* ---------- 选物体：上传图片 → 拖框圈住 → 自动抠背景 ---------- */
   function openCarvePickModal() {
     cropSel = null;
@@ -2125,6 +2174,9 @@
       onCarve();
     };
     $('btnCarvePick').onclick = askReplaceCarve;
+    // 点材质那一行看六级材质演化；点雕刻进度条看雕刻过程
+    $('matRow').onclick = openMatLadderModal;
+    $('carveProgWrap').onclick = openCarveStageModal;
     $('carveImgFile').onchange = onCropFile;
 
     // 今日安排

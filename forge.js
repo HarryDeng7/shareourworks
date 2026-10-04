@@ -77,6 +77,77 @@
     return { key: m.key, next: next ? [next.at, next.key] : null };
   }
 
+
+  /* ---------- 石料外观：棱角分明的多面石头（六种材质共用这个形状，只换颜色） ---------- */
+  const ROCK_OUTLINE = 'M284,300 L286,278 L296,262 L312,252 L338,250 L362,258 L376,276 L377,300 Z';
+  // 五个切面：先两块提亮的顶面，再三块压暗的侧面，拼出「一刀一刀凿出来」的棱角感
+  const ROCK_LIGHT = [
+    'M286,278 L296,262 L312,252 L322,272 L306,282 Z',
+    'M312,252 L338,250 L362,258 L348,278 L322,272 Z',
+  ];
+  const ROCK_DARK = [
+    'M362,258 L376,276 L377,300 L352,296 L348,278 Z',
+    'M286,278 L306,282 L318,296 L284,300 Z',
+    'M306,282 L322,272 L348,278 L352,296 L318,296 Z',
+  ];
+  const ROCK_RIDGE = 'M286,278 L306,282 L318,296M312,252 L322,272 L348,278M338,250 L322,272M362,258 L348,278';
+
+  /* ---------- 弹窗里的预览小图（自带颜色，不依赖场景，可同时放好几张） ---------- */
+  function mixHex(a, b, t) {
+    const pa = parseInt(String(a).slice(1), 16);
+    const pb = parseInt(String(b).slice(1), 16);
+    const r = Math.round((((pa >> 16) & 255) * (1 - t) + ((pb >> 16) & 255) * t));
+    const g = Math.round((((pa >> 8) & 255) * (1 - t) + ((pb >> 8) & 255) * t));
+    const bl = Math.round(((pa & 255) * (1 - t) + (pb & 255) * t));
+    return '#' + ((1 << 24) + (r << 16) + (g << 8) + bl).toString(16).slice(1);
+  }
+
+  // 一块棱角分明的石料（给「材质演化」用）
+  function previewRock(matIdx, px) {
+    const m = MATERIALS[matIdx] || MATERIALS[0];
+    const c1 = m.g[0], c2 = m.g[1] || m.g[0], c3 = m.g[2] || m.g[1] || m.g[0];
+    const light = m.top[0], dark = '#0b1220';
+    const gid = 'pvrock' + matIdx;
+    let s = '<svg class="pv" viewBox="278 242 106 64" width="' + px + '" height="' + Math.round(px * 64 / 106) + '" xmlns="http://www.w3.org/2000/svg">';
+    s += '<defs><linearGradient id="' + gid + '" x1="0" y1="0" x2="0" y2="1">'
+      + '<stop offset="0" stop-color="' + c1 + '"/><stop offset="0.5" stop-color="' + c2 + '"/>'
+      + '<stop offset="1" stop-color="' + c3 + '"/></linearGradient></defs>';
+    s += '<path d="' + ROCK_OUTLINE + '" fill="url(#' + gid + ')" stroke="' + m.stroke + '" stroke-width="2"/>';
+    ROCK_LIGHT.forEach((d, i) => { s += '<path d="' + d + '" fill="' + light + '" opacity="' + (i ? 0.2 : 0.35) + '"/>'; });
+    ROCK_DARK.forEach((d, i) => { s += '<path d="' + d + '" fill="' + dark + '" opacity="' + [0.18, 0.12, 0.06][i] + '"/>'; });
+    s += '<path d="' + ROCK_RIDGE + '" fill="none" stroke="' + m.stroke + '" stroke-width="1.2" opacity="0.4"/>';
+    return s + '</svg>';
+  }
+
+  // 六面六色（上色的样子）
+  const CUBE6 = ['#ef4444', '#f59e0b', '#22c55e', '#38bdf8', '#a78bfa', '#f472b6'];
+  const CUBE_TOP = 'M50,12 L80,29 L50,46 L20,29 Z';
+  const CUBE_LEFT = 'M20,29 L50,46 L50,82 L20,65 Z';
+  const CUBE_RIGHT = 'M50,46 L80,29 L80,65 L50,82 Z';
+
+  // 雕出来的方料：stage 1 = 素材本色（刚雕出形状），2 = 六面六色（上色），3 = 再加抛光高光
+  function previewCube(stage, matIdx, px) {
+    const m = MATERIALS[matIdx] || MATERIALS[0];
+    const c1 = m.g[0], c2 = m.g[1] || m.g[0];
+    let top, left, right, chips = '';
+    if (stage >= 2) {
+      top = CUBE6[0]; left = CUBE6[2]; right = CUBE6[4];
+      chips = CUBE6.map((c, i) => '<rect x="' + (10 + i * 14) + '" y="90" width="11" height="11" rx="3" fill="' + c + '"/>').join('');
+    } else {
+      top = c1; left = c2; right = mixHex(c1, c2, 0.45);
+    }
+    const gloss = stage >= 3
+      ? '<path d="' + CUBE_TOP + '" fill="#ffffff" opacity="0.3"/>'
+        + '<g stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" opacity="0.9">'
+        + '<path d="M28,21 L28,13 M24,17 L32,17"/><path d="M74,59 L74,51 M70,55 L78,55"/></g>'
+      : '';
+    return '<svg class="pv" viewBox="0 0 100 104" width="' + px + '" height="' + Math.round(px * 104 / 100) + '" xmlns="http://www.w3.org/2000/svg">'
+      + '<path d="' + CUBE_TOP + '" fill="' + top + '" stroke="rgba(0,0,0,.35)" stroke-width="1.5"/>'
+      + '<path d="' + CUBE_LEFT + '" fill="' + left + '" stroke="rgba(0,0,0,.35)" stroke-width="1.5"/>'
+      + '<path d="' + CUBE_RIGHT + '" fill="' + right + '" stroke="rgba(0,0,0,.35)" stroke-width="1.5"/>'
+      + gloss + chips + '</svg>';
+  }
+
   /* ---------- 音效（WebAudio，无需素材） ---------- */
   const sound = {
     ctx: null,
@@ -141,6 +212,7 @@
       #shape .edge { stroke: var(--mat-stroke2, #64748b); }
       #shape .hl { stroke: var(--mat-hl, #94a3b8); }
       #shape .facet { stroke: var(--mat-facet, #e0f7ff); }
+      #shape .ridge { stroke: var(--mat-stroke, #334155); }
     </style>
     <linearGradient id="glossGrad" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#ffffff" stop-opacity="0"/>
@@ -236,9 +308,17 @@
       <!-- 形状（按合计敲击升级）：石块 / 锭形 / 宝石形，颜色交给材质渐变 -->
       <g id="shape">
         <g id="shape-stone">
-          <path class="body" d="M284,300 C281,268 302,252 330,252 C358,252 379,268 376,300 Z" fill="url(#matGrad)" stroke-width="2"/>
-          <ellipse cx="312" cy="270" rx="13" ry="5.5" fill="url(#matTop)" opacity="0.35"/>
-          <ellipse cx="352" cy="265" rx="8" ry="4" fill="url(#matTop)" opacity="0.22"/>
+          <path class="body" d="M284,300 L286,278 L296,262 L312,252 L338,250 L362,258 L376,276 L377,300 Z" fill="url(#matGrad)" stroke-width="2"/>
+          <g fill="url(#matTop)">
+            <path d="M286,278 L296,262 L312,252 L322,272 L306,282 Z" opacity="0.35"/>
+            <path d="M312,252 L338,250 L362,258 L348,278 L322,272 Z" opacity="0.2"/>
+          </g>
+          <g fill="#0b1220">
+            <path d="M362,258 L376,276 L377,300 L352,296 L348,278 Z" opacity="0.18"/>
+            <path d="M286,278 L306,282 L318,296 L284,300 Z" opacity="0.12"/>
+            <path d="M306,282 L322,272 L348,278 L352,296 L318,296 Z" opacity="0.06"/>
+          </g>
+          <path class="ridge" d="M286,278 L306,282 L318,296M312,252 L322,272 L348,278M338,250 L322,272M362,258 L348,278" stroke-width="1.2" opacity="0.4" fill="none"/>
         </g>
         <g id="shape-ingot" class="hidden">
           <path class="body" d="M294,282 L366,282 L378,302 L282,302 Z" fill="url(#matGrad)" stroke-width="2"/>
@@ -691,6 +771,9 @@
   Forge.CARVE_STEP = CARVE_STEP;
   Forge.CARVE_TOTAL = CARVE_TOTAL;
   Forge.OBJ_BOX = OBJ_BOX;
+  Forge.previewRock = previewRock;
+  Forge.previewCube = previewCube;
+  Forge.CUBE6 = CUBE6;
   Forge.shapeId = function (total) { return shapeOf(total).id; };
   Forge.shapeName = function (total) { return T(shapeOf(total).key); };
   Forge.matId = function (days) { return matOf(days).id; };
