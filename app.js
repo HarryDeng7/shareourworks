@@ -948,7 +948,7 @@
     $('statCarve').textContent = state.carveCredit || 0;
     $('statDays').textContent = myDays;
     Forge.setCarve(state.carve);
-    Forge.update({ myDays: myDays });
+    Forge.update({ hits: state.strikes });
     renderForgeHint();
     renderCarvePanel();
     renderForgeLegend();
@@ -961,7 +961,7 @@
     const noCredit = state.credit <= 0;
     el.textContent = noCredit
       ? T('forge.hintNoCredit')
-      : T('forge.hint', { item: Forge.matName(state.checkedDays.length) });
+      : T('forge.hint', { item: Forge.matName(state.strikes) });
     el.classList.toggle('warn', noCredit);
   }
 
@@ -1069,7 +1069,7 @@
     let title, body;
     if (isEnd) { title = T('carve.m150Title'); body = T('carve.m150Body', { name: name }); }
     else if (n >= 2 * step) { title = T('carve.m100Title'); body = T('carve.m100Body', { name: name, n: step }); }
-    else { title = T('carve.m50Title'); body = T('carve.m50Body', { name: name, n: step, mat: Forge.matName(state.checkedDays.length) }); }
+    else { title = T('carve.m50Title'); body = T('carve.m50Body', { name: name, n: step, mat: Forge.matName(state.strikes) }); }
     openModal(title, `
       <p>${body}</p>
       <div class="modal-row" style="flex-direction:column;gap:8px">
@@ -1105,15 +1105,15 @@
 
   /* ---------- 材质演化（点材质那一行打开）：六级材质的样子 + 需要的天数 ---------- */
   function openMatLadderModal() {
-    const days = state.checkedDays.length;
+    const hits = state.strikes;
     const list = Forge.MATERIALS;
-    const curId = Forge.matId(days);
+    const curId = Forge.matId(hits);
     const ci = Math.max(0, list.findIndex((m) => m.id === curId));
     const cards = list.map((m, i) => {
       const on = m.id === curId;
-      const reached = days >= m.at;
+      const reached = hits >= m.at;
       const label = reached ? (on ? T('mat.now') : T('mat.done')) : T('mat.days', { n: m.at });
-      const left = reached ? '' : '<div class="mat-left">' + escapeHtml(T('mat.left', { n: m.at - days })) + '</div>';
+      const left = reached ? '' : '<div class="mat-left">' + escapeHtml(T('mat.left', { n: m.at - hits })) + '</div>';
       return `<div class="mat-card${on ? ' on' : ''}${reached ? ' reached' : ''}">
         <div class="mat-pic">${Forge.previewRock(i, 72)}</div>
         <div class="mat-name">${escapeHtml(T(m.key))}</div>
@@ -1121,8 +1121,8 @@
     }).join('');
     const next = list[ci + 1] || null;
     const note = next
-      ? T('mat.note', { name: T(list[ci].key), days: days, next: T(next.key), left: next.at - days })
-      : T('mat.noteDone', { name: T(list[ci].key), days: days });
+      ? T('mat.note', { name: T(list[ci].key), n: hits, next: T(next.key), left: next.at - hits })
+      : T('mat.noteDone', { name: T(list[ci].key), n: hits });
     openModal(T('mat.title'), `
       <p class="muted">${escapeHtml(T('mat.intro'))}</p>
       <div class="mat-grid">${cards}</div>
@@ -1136,7 +1136,7 @@
     const c = state.carve;
     const n = c ? Math.min(Forge.CARVE_TOTAL, c.count || 0) : 0;
     const cur = n === 0 ? 0 : (n < step ? 1 : (n < 2 * step ? 2 : 3));
-    const mi = Math.max(0, Forge.MATERIALS.findIndex((m) => m.id === Forge.matId(state.checkedDays.length)));
+    const mi = Math.max(0, Forge.MATERIALS.findIndex((m) => m.id === Forge.matId(state.strikes)));
     const cells = [
       { k: 0, n: 0, pic: Forge.previewRock(mi, 76), name: T('stg.s0') },
       { k: 1, n: step, pic: Forge.previewCube(1, mi, 76), name: T('stg.s1') },

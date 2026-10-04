@@ -4,7 +4,7 @@
 
   const VIEW_W = 640, VIEW_H = 420;
 
-  /* 材质：按「我自己的打卡天数」升级 —— 决定这块料是什么材料、什么颜色 */
+  /* 材质：按「我自己敲的次数」升级 —— 决定这块料是什么材料、什么颜色 */
   const MATERIALS = [
     { id: 'stone', at: 0, key: 'forge.stage0',
       g: ['#7b8ba1', '#5c6b80', '#475569'], top: ['#b6c3d3', '#8b9bad'], stroke: '#334155', stroke2: '#64748b',
@@ -31,7 +31,7 @@
       hl: '#ffffff', facet: '#e0f7ff',
       glow: '#22d3ee', glowOp: 0.2, sparks: ['#a5f3fc', '#67e8f9'], debris: '#7dd3fc', text: '#a5f3fc' },
   ];
-  const CARVE_MAX = 150; // 材质封顶：打卡 150 天 = 钻石
+  const CARVE_MAX = 150; // 材质封顶：敲 150 下 = 钻石
 
   // 落锤点：这块石料正面下锤的位置（形状不再变化，固定一个点）
   const ROCK_HIT = { x: 360, y: 276 };
@@ -49,15 +49,15 @@
 
   function T(k, v) { return window.I18N ? window.I18N.t(k, v) : k; }
 
-  function matOf(days) {
+  function matOf(hits) {
     let m = MATERIALS[0];
-    for (let i = 0; i < MATERIALS.length; i++) if ((days || 0) >= MATERIALS[i].at) m = MATERIALS[i];
+    for (let i = 0; i < MATERIALS.length; i++) if ((hits || 0) >= MATERIALS[i].at) m = MATERIALS[i];
     return m;
   }
 
-  // 「距下一级材质还差几天」用
-  function stageOf(days) {
-    const m = matOf(days);
+  // 「距下一级材质还差几下」用
+  function stageOf(hits) {
+    const m = matOf(hits);
     let next = null;
     for (let i = 0; i < MATERIALS.length; i++) {
       if (MATERIALS[i].id === m.id) next = MATERIALS[i + 1] || null;
@@ -357,7 +357,7 @@
     gradStops: null,
     material: '',
     matObj: null,
-    myDays: 0,
+    hits: 0,
     painted: false,
     armAngle: 0,
     busy: false,
@@ -412,11 +412,11 @@
       }, 3400);
     },
 
-    /* 更新：只看材质（我自己的打卡天数）—— 这块料长什么样是固定的，材质决定颜色 */
-    update({ myDays }) {
-      myDays = myDays || 0;
-      this.myDays = myDays;
-      const mat = matOf(myDays);
+    /* 更新：只看材质（我自己敲的次数）—— 这块料长什么样由雕刻选的物体决定，材质决定颜色 */
+    update({ hits }) {
+      hits = hits || 0;
+      this.hits = hits;
+      const mat = matOf(hits);
       this.matObj = mat;
 
       if (mat.id !== this.material) {
@@ -428,15 +428,15 @@
 
       this.syncCarve();
 
-      const st = stageOf(myDays);
+      const st = stageOf(hits);
       const bar = document.getElementById('carveBar');
       const stageEl = document.getElementById('carveStage');
       const textEl = document.getElementById('carveText');
-      if (bar) bar.style.width = Math.min(100, (myDays / CARVE_MAX) * 100).toFixed(1) + '%';
+      if (bar) bar.style.width = Math.min(100, (hits / CARVE_MAX) * 100).toFixed(1) + '%';
       if (stageEl) stageEl.textContent = T(st.key);
       if (textEl) {
         textEl.textContent = st.next
-          ? T('forge.stageLeft', { stage: T(st.next[1]), n: st.next[0] - myDays })
+          ? T('forge.stageLeft', { stage: T(st.next[1]), n: st.next[0] - hits })
           : T('forge.stageDone');
       }
       this.painted = true;
@@ -711,15 +711,15 @@
 
   function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
-  Forge.MATERIALS = MATERIALS; // 6 级材质（按我自己的打卡天数）
+  Forge.MATERIALS = MATERIALS; // 6 级材质（按我自己敲的次数）
   Forge.CARVE_STEP = CARVE_STEP;
   Forge.CARVE_TOTAL = CARVE_TOTAL;
   Forge.OBJ_BOX = OBJ_BOX;
   Forge.previewRock = previewRock;
   Forge.previewCube = previewCube;
   Forge.CUBE6 = CUBE6;
-  Forge.matId = function (days) { return matOf(days).id; };
-  Forge.matName = function (days) { return T(matOf(days).key); };
+  Forge.matId = function (hits) { return matOf(hits).id; };
+  Forge.matName = function (hits) { return T(matOf(hits).key); };
 
   window.Forge = Forge;
 })();
