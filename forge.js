@@ -288,7 +288,9 @@
   <rect x="475" y="355" width="15" height="50" fill="#5b3412"/>
   <ellipse cx="320" cy="398" rx="190" ry="16" fill="#000" opacity="0.3"/>
 
-  <!-- 桌上的原材料：石头 → 铁锭 → 金锭 → 钻石（按两人合计敲击数升级） -->
+  <!-- 桌上做好的作品：自由摆放（可拖动） -->
+  <g id="works"></g>
+  <!-- 手上这块料 -->
   <ellipse id="itemGlow" cx="330" cy="302" rx="58" ry="10" fill="#f59e0b" opacity="0.14"/>
   <g id="item" class="stone-hit" data-material="stone">
     <!-- #piece 是「这块料整体」：雕刻时用蒙版把块体一点点凿掉，只留下物体的轮廓 -->
@@ -316,9 +318,9 @@
         <path d="M352,278 L362,286"/>
         <path d="M314,296 L332,300"/>
       </g>
-      <!-- 雕出来的物体：先按材料本色出形状（金料雕出金船），再上色，最后抛光 -->
+      <!-- 雕出来的物体：先按材料本色出形状（金料雕出金船），再自己上色，最后抛光 -->
       <rect id="carveFill" class="hidden" x="268" y="232" width="124" height="78" fill="url(#matGrad)" mask="url(#objMask)"/>
-      <image id="carveCol" class="hidden" href="" x="268" y="232" width="124" height="78" preserveAspectRatio="xMidYMid meet" mask="url(#objMask)"/>
+      <image id="carvePaint" class="hidden" href="" x="268" y="232" width="124" height="78" preserveAspectRatio="xMidYMid meet" mask="url(#objMask)"/>
       <g id="carveGloss" class="hidden" mask="url(#objMask)">
         <path d="M268,312 L352,226 L382,226 L298,312 Z" fill="url(#glossGrad)" style="mix-blend-mode:screen"/>
         <g stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" style="mix-blend-mode:screen">
@@ -343,8 +345,13 @@
     glowEl: null,
     chiselsEl: null,
     carveFill: null,
-    carveCol: null,
+    carvePaint: null,
     carveGloss: null,
+    worksEl: null,
+    paintSrc: '',
+    workNodes: null,
+    dragWork: null,
+    onWorkMove: null,
     objMaskImg: null,
     blockBase: null,
     blockSil: null,
@@ -376,8 +383,9 @@
       this.glowEl = svg.querySelector('#itemGlow');
       this.chiselsEl = svg.querySelector('#chisels');
       this.carveFill = svg.querySelector('#carveFill');
-      this.carveCol = svg.querySelector('#carveCol');
+      this.carvePaint = svg.querySelector('#carvePaint');
       this.carveGloss = svg.querySelector('#carveGloss');
+      this.worksEl = svg.querySelector('#works');
       this.objMaskImg = svg.querySelector('#objMaskImg');
       this.blockBase = svg.querySelector('#blockBase');
       this.blockSil = svg.querySelector('#blockSil');
@@ -461,16 +469,123 @@
       this.glowEl.setAttribute('opacity', String(mat.glowOp));
     },
 
+    /* 自己涂的色（PNG 纹理，和物体同一个框；只在变化时改 href） */
+    setPaint(url) {
+      const u = url || '';
+      if (u === this.paintSrc) return;
+      this.paintSrc = u;
+      if (u) this.carvePaint.setAttribute('href', u);
+      else this.carvePaint.removeAttribute('href');
+      this.carvePaint.classList.toggle('hidden', !u || !this.work || (this.work.count || 0) < CARVE_STEP);
+    },
+
+    /* 桌上做好的作品：自由摆放，数量多了自动缩小 */
+    setWorks(list) {
+      if (!this.worksEl) return;
+      this.worksEl.textContent = '';
+      this.workNodes = {};
+      const arr = list || [];
+      const k = arr.length > 4 ? Math.max(0.26, 0.5 - (arr.length - 4) * 0.05) : 0.5;
+      arr.forEach((w) => {
+        const g = document.createElementNS(SVGNS, 'g');
+        g.setAttribute('class', 'work');
+        g.setAttribute('data-id', w.id);
+        g.style.cursor = 'grab';
+        const box = { x: OBJ_BOX.w * k, y: OBJ_BOX.h * k };
+        const sh = document.createElementNS(SVGNS, 'ellipse');
+        sh.setAttribute('cx', 0);
+        sh.setAttribute('cy', box.y / 2 - 2);
+        sh.setAttribute('rx', box.x * 0.5);
+        sh.setAttribute('ry', 5 * k);
+        sh.setAttribute('fill', '#000');
+        sh.setAttribute('opacity', '0.22');
+        g.appendChild(sh);
+        [w.obj, w.paint].forEach((href, i) => {
+          if (!href) return;
+          const im = document.createElementNS(SVGNS, 'image');
+          im.setAttribute('href', href);
+          try { im.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', href); } catch (e) { }
+          im.setAttribute('x', -box.x / 2);
+          im.setAttribute('y', -box.y / 2);
+          im.setAttribute('width', box.x);
+          im.setAttribute('height', box.y);
+          im.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+          if (i === 0) im.setAttribute('class', 'w-obj');
+          else im.setAttribute('class', 'w-paint');
+          g.appendChild(im);
+        });
+        this.placeWork(g, w.x, w.y);
+        this.worksEl.appendChild(g);
+        this.workNodes[w.id] = g;
+      });
+      this.bindWorkDrag();
+    },
+
+    placeWork(g, x, y) {
+      const nx = Math.min(500, Math.max(140, Number(x) || 0));
+      const ny = Math.min(336, Math.max(300, Number(y) || 0));
+      g.setAttribute('transform', 'translate(' + nx.toFixed(1) + ',' + ny.toFixed(1) + ')');
+      g.dataset.x = String(nx);
+      g.dataset.y = String(ny);
+    },
+
+    /* 成品拖动：按住拖动改位置，松手把新坐标回传给调用方保存 */
+    bindWorkDrag() {
+      const el = this.worksEl;
+      if (!el || el.dataset.bound === '1') return;
+      el.dataset.bound = '1';
+      const toScene = (e) => {
+        const vb = this.svg.getAttribute('viewBox').split(/[\s,]+/).map(Number);
+        const r = this.svg.getBoundingClientRect();
+        const kx = vb[2] / (r.width || 1), ky = vb[3] / (r.height || 1);
+        return { x: vb[0] + (e.clientX - r.left) * kx, y: vb[1] + (e.clientY - r.top) * ky };
+      };
+      el.addEventListener('pointerdown', (e) => {
+        const g = e.target.closest ? e.target.closest('.work') : null;
+        if (!g) return;
+        e.preventDefault();
+        e.stopPropagation();
+        try { el.setPointerCapture(e.pointerId); } catch (err) { }
+        const p = toScene(e);
+        this.dragWork = { g: g, id: g.dataset.id, dx: Number(g.dataset.x) - p.x, dy: Number(g.dataset.y) - p.y, moved: 0 };
+        g.style.cursor = 'grabbing';
+      });
+      el.addEventListener('pointermove', (e) => {
+        if (!this.dragWork) return;
+        e.preventDefault();
+        const p = toScene(e);
+        const nx = p.x + this.dragWork.dx, ny = p.y + this.dragWork.dy;
+        const g = this.dragWork.g;
+        if (Math.abs(nx - Number(g.dataset.x)) + Math.abs(ny - Number(g.dataset.y)) > 2) this.dragWork.moved += 1;
+        this.placeWork(g, nx, ny);
+      });
+      const end = () => {
+        if (!this.dragWork) return;
+        const d = this.dragWork;
+        this.dragWork = null;
+        d.g.style.cursor = 'grab';
+        if (this.onWorkMove) this.onWorkMove(d.id, Number(d.g.dataset.x), Number(d.g.dataset.y), d.moved > 1);
+      };
+      el.addEventListener('pointerup', end);
+      el.addEventListener('pointercancel', end);
+    },
+
+    hitTestWork(px, py) {
+      const keys = Object.keys(this.workNodes || {});
+      for (let i = keys.length - 1; i >= 0; i--) {
+        const g = this.workNodes[keys[i]];
+        const x = Number(g.dataset.x), y = Number(g.dataset.y);
+        if (Math.abs(px - x) < 40 && Math.abs(py - y) < 34) return keys[i];
+      }
+      return null;
+    },
+
     /* 雕刻用的两张图：物体本色图 + 白色剪影（只在变化时改 href） */
     setCarve(c) {
       this.work = (c && c.obj && c.sil) ? c : null;
       const obj = this.work ? this.work.obj : '';
       const sil = this.work ? this.work.sil : '';
-      if (obj !== this.carveObjSrc) {
-        this.carveObjSrc = obj;
-        if (obj) this.carveCol.setAttribute('href', obj);
-        else this.carveCol.removeAttribute('href');
-      }
+      this.carveObjSrc = obj; // 物体本色图只用于成品留档（手上的料由材质颜色决定）
       if (sil !== this.carveSilSrc) {
         this.carveSilSrc = sil;
         [this.objMaskImg, this.blockSil].forEach((el) => {
@@ -498,8 +613,7 @@
       this.blockBase.setAttribute('opacity', (1 - pShape).toFixed(3));
       this.carveFill.classList.toggle('hidden', !has);
       this.carveFill.setAttribute('opacity', has ? (0.18 + 0.82 * pShape).toFixed(3) : '0');
-      this.carveCol.classList.toggle('hidden', !has || n < CARVE_STEP);
-      this.carveCol.setAttribute('opacity', pPaint.toFixed(3));
+      this.carvePaint.classList.toggle('hidden', !has || n < CARVE_STEP || !this.paintSrc);
       this.carveGloss.classList.toggle('hidden', !has || n < 2 * CARVE_STEP);
       this.carveGloss.setAttribute('opacity', pPolish.toFixed(3));
       const op = (!has || n <= 0 || n >= CARVE_STEP) ? 0 : 0.25 + 0.75 * Math.sin(Math.PI * pShape);

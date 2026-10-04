@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title data-i18n="doc.title">敲石工坊 · 好友监督打卡</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⛏️</text></svg>">
-<link rel="stylesheet" href="./style.css?v=20261004g">
+<link rel="stylesheet" href="./style.css?v=20261004h">
 </head>
 <body>
 
@@ -129,6 +129,14 @@
             <button id="btnCarve" class="btn btn-accent">🔪 雕刻一次</button>
             <button id="btnCarvePick" class="btn">🖼 选物体</button>
           </div>
+          <!-- 自己上色：雕出形状后解锁，用彩笔在作品上涂 -->
+          <div id="paintBox" class="paint-box hidden">
+            <div class="paint-head">
+              <button id="btnPaintMode" class="btn btn-sm" data-i18n="paint.start">🖌 开始上色</button>
+              <span id="paintHint" class="muted"></span>
+            </div>
+            <div id="paintPens" class="paint-pens hidden"></div>
+          </div>
           <input id="carveImgFile" class="sr-only" type="file" accept="image/*">
         </div>
         <div id="carveLegend" class="carve-legend"></div>
@@ -162,8 +170,8 @@
 <div id="toasts" class="toasts"></div>
 <div id="confettiLayer"></div>
 
-<script src="./i18n.js?v=20261004g"></script>
-<script src="./forge.js?v=20261004g"></script>
-<script src="./app.js?v=20261004g"></script>
+<script src="./i18n.js?v=20261004h"></script>
+<script src="./forge.js?v=20261004h"></script>
+<script src="./app.js?v=20261004h"></script>
 </body>
 </html>

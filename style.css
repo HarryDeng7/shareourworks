@@ -677,3 +677,22 @@ input.item-text:focus { background: rgba(245, 158, 11, 0.1); box-shadow: 0 0 0 1
   font-weight: 700;
 }
 .item-check.miss.locked { opacity: 1; }
+
+/* ===== 自己上色（彩笔） ===== */
+.paint-box { margin-top: 10px; }
+.paint-head { display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; }
+.paint-head .btn.active { background: var(--accent); border-color: var(--accent); color: #1c1400; font-weight: 700; }
+.paint-head .muted { font-size: 12px; }
+.paint-pens { display: flex; align-items: center; justify-content: center; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.pen {
+  width: 26px; height: 26px; border-radius: 50%; padding: 0; cursor: pointer;
+  border: 2px solid rgba(148, 163, 184, 0.45);
+  box-shadow: inset 0 -3px 5px rgba(0, 0, 0, 0.35);
+}
+.pen.on { border-color: #ffffff; box-shadow: 0 0 0 2px var(--accent); transform: scale(1.12); }
+.pen-erase { background: #334155; color: #cbd5e1; font-size: 13px; line-height: 1; }
+.forge-scene.painting { cursor: crosshair; }
+
+/* 桌上成品：拖动摆放 */
+#works .work { transition: filter 0.15s ease; }
+#works .work:hover { filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5)); }

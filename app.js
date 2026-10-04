@@ -65,6 +65,7 @@
       carveCredit: 0,
       carveDay: '',
       carve: null,
+      works: [],
       buddy: null,
       syncStat: { ok: 0, fail: 0, lastOk: 0, lastFail: 0, log: [] },
     };
@@ -87,6 +88,13 @@
           s.syncStat = { ok: 0, fail: 0, lastOk: 0, lastFail: 0, log: [] };
         }
         if (typeof s.scheduleDay !== 'string') s.scheduleDay = '';
+        if (!Array.isArray(s.works)) s.works = [];
+        s.works = s.works.filter((w) => w && typeof w === 'object' && w.obj)
+          .map((w) => ({
+            id: String(w.id || ''), obj: String(w.obj), paint: String(w.paint || ''),
+            mat: String(w.mat || 'stone'), name: String(w.name || ''),
+            x: Number(w.x) || 180, y: Number(w.y) || 318,
+          })).slice(-10);
         if (typeof s.carveCredit !== 'number') s.carveCredit = 0;
         if (typeof s.carveDay !== 'string') s.carveDay = '';
         if (!s.carve || typeof s.carve !== 'object' || !s.carve.obj || !s.carve.sil
@@ -948,9 +956,12 @@
     $('statCarve').textContent = state.carveCredit || 0;
     $('statDays').textContent = myDays;
     Forge.setCarve(state.carve);
+    Forge.setPaint(state.carve ? (state.carve.paint || '') : '');
+    Forge.setWorks(state.works || []);
     Forge.update({ hits: state.strikes });
     renderForgeHint();
     renderCarvePanel();
+    renderPaintBox();
     renderForgeLegend();
   }
 
@@ -1053,7 +1064,10 @@
     renderForgeStats();
     Forge.carve();
     toast(T('toast.carveOnce', { n: c.count }));
-    if (c.count % step === 0) {
+    if (c.count >= Forge.CARVE_TOTAL) {
+      const done = c;
+      setTimeout(() => { openFinishModal(done, !!finishWork()); }, 560);
+    } else if (c.count % step === 0) {
       setTimeout(() => { confetti(); Forge.chime(); openCarveMilestoneModal(); }, 560);
     }
   }
@@ -1065,16 +1079,15 @@
     const step = Forge.CARVE_STEP;
     const n = c.count || 0;
     const name = escapeHtml(c.name || '');
-    const isEnd = n >= 3 * step;
+    const locked = n >= 2 * step; // 上色之后就不能再换物体了
     let title, body;
-    if (isEnd) { title = T('carve.m150Title'); body = T('carve.m150Body', { name: name }); }
-    else if (n >= 2 * step) { title = T('carve.m100Title'); body = T('carve.m100Body', { name: name, n: step }); }
+    if (locked) { title = T('carve.m100Title'); body = T('carve.m100Body', { name: name, n: step }); }
     else { title = T('carve.m50Title'); body = T('carve.m50Body', { name: name, n: step, mat: Forge.matName(state.strikes) }); }
     openModal(title, `
       <p>${body}</p>
       <div class="modal-row" style="flex-direction:column;gap:8px">
-        <button id="btnCarveNext" class="btn btn-accent btn-block">${escapeHtml(isEnd ? T('carve.btnKeep') : T('carve.btnNext', { n: step }))}</button>
-        <button id="btnCarveReplace" class="btn btn-block">${escapeHtml(T('carve.btnReplace'))}</button>
+        <button id="btnCarveNext" class="btn btn-accent btn-block">${escapeHtml(T('carve.btnNext', { n: step }))}</button>
+        ${locked ? '' : '<button id="btnCarveReplace" class="btn btn-block">' + escapeHtml(T('carve.btnReplace')) + '</button>'}
         <button id="btnCarveLater" class="btn btn-ghost btn-block">${escapeHtml(T('carve.cancel'))}</button>
       </div>`);
     $('btnCarveNext').onclick = () => {
@@ -1082,10 +1095,10 @@
       saveState();
       closeModal();
       renderForgeStats();
-      if (isEnd) { confetti(); toast(T('carve.keepToast', { name: c.name || '' }), 3600); }
-      else toast(T('carve.nextToast', { stage: T('carve.stage' + Math.min(2, n / step)), n: step }), 3200);
+      toast(T('carve.nextToast', { stage: T('carve.stage' + Math.min(2, n / step)), n: step }), 3200);
     };
-    $('btnCarveReplace').onclick = () => { closeModal(); openCarvePickModal(); };
+    const rp = $('btnCarveReplace');
+    if (rp) rp.onclick = () => { closeModal(); openCarvePickModal(); };
     $('btnCarveLater').onclick = closeModal;
   }
 
@@ -1150,6 +1163,299 @@
       <p class="muted">${escapeHtml(T('stg.intro'))}</p>
       <div class="stg-strip">${cells}</div>
       <p class="muted" style="margin-top:10px;font-size:12px">${escapeHtml(T('stg.note'))}</p>`);
+  }
+
+  /* ---------- 自己上色（彩笔） ---------- */
+  const PEN_COLORS = ['#ef4444', '#f59e0b', '#fde047', '#22c55e', '#38bdf8', '#6366f1', '#a855f7', '#f472b6', '#ffffff', '#111827'];
+  const PAINT_W = 248, PAINT_H = 156;   // 涂色画布：跟物体同一个框，2 倍分辨率
+  let paintMode = false;
+  let penColor = PEN_COLORS[0];
+  let penErase = false;
+  let paintCv = null;
+  let paintCtx = null;
+  let paintLoaded = '';
+  let painting = false;
+  let paintLast = null;
+  let paintFlush = 0;
+
+  // 雕出形状之后、抛光完成之前都能自己涂色
+  function paintReady() {
+    const c = state && state.carve;
+    const n = c ? (c.count || 0) : 0;
+    return !!c && n >= Forge.CARVE_STEP && n < Forge.CARVE_TOTAL;
+  }
+
+  function ensurePaintCanvas() {
+    if (paintCv) return paintCv;
+    paintCv = document.createElement('canvas');
+    paintCv.width = PAINT_W;
+    paintCv.height = PAINT_H;
+    paintCtx = paintCv.getContext('2d');
+    return paintCv;
+  }
+
+  // 把已存的涂色载回画布（刷新/搬账号回来还能接着涂）
+  function loadPaintFromState() {
+    ensurePaintCanvas();
+    const url = (state.carve && state.carve.paint) || '';
+    if (url === paintLoaded) return;
+    paintLoaded = url;
+    paintCtx.clearRect(0, 0, PAINT_W, PAINT_H);
+    if (!url) { Forge.setPaint(''); return; }
+    const img = new Image();
+    img.onload = () => {
+      paintCtx.clearRect(0, 0, PAINT_W, PAINT_H);
+      paintCtx.drawImage(img, 0, 0, PAINT_W, PAINT_H);
+      Forge.setPaint(paintCv.toDataURL('image/png'));
+    };
+    img.src = url;
+  }
+
+  function flushPaint() {
+    ensurePaintCanvas();
+    const url = paintCv.toDataURL('image/png');
+    paintLoaded = url;
+    if (state.carve) {
+      state.carve.paint = url;
+      saveState();
+    }
+    Forge.setPaint(url);
+  }
+
+  // 屏幕坐标 -> 涂色画布坐标
+  function paintPos(e) {
+    const svg = document.querySelector('#forgeScene svg');
+    const vb = svg.getAttribute('viewBox').split(/[\s,]+/).map(Number);
+    const r = svg.getBoundingClientRect();
+    const x = vb[0] + (e.clientX - r.left) * (vb[2] / (r.width || 1));
+    const y = vb[1] + (e.clientY - r.top) * (vb[3] / (r.height || 1));
+    const b = Forge.OBJ_BOX;
+    return { x: (x - b.x) / b.w * PAINT_W, y: (y - b.y) / b.h * PAINT_H };
+  }
+
+  function paintStroke(a, b) {
+    ensurePaintCanvas();
+    paintCtx.save();
+    paintCtx.lineCap = 'round';
+    paintCtx.lineJoin = 'round';
+    paintCtx.lineWidth = 14;
+    if (penErase) {
+      paintCtx.globalCompositeOperation = 'destination-out';
+      paintCtx.strokeStyle = '#000';
+    } else {
+      paintCtx.globalCompositeOperation = 'source-over';
+      paintCtx.strokeStyle = penColor;
+    }
+    paintCtx.beginPath();
+    paintCtx.moveTo(a.x, a.y);
+    paintCtx.lineTo(b.x, b.y);
+    paintCtx.stroke();
+    paintCtx.restore();
+    const now = Date.now();
+    if (now - paintFlush > 90) { paintFlush = now; Forge.setPaint(paintCv.toDataURL('image/png')); }
+  }
+
+  function markPens() {
+    const wrap = $('paintPens');
+    if (!wrap) return;
+    wrap.querySelectorAll('.pen[data-c]').forEach((b) => {
+      b.classList.toggle('on', !penErase && b.dataset.c === penColor);
+    });
+    const er = $('penErase');
+    if (er) er.classList.toggle('on', penErase);
+  }
+
+  function renderPens() {
+    const wrap = $('paintPens');
+    if (!wrap) return;
+    if (!wrap.dataset.built) {
+      wrap.dataset.built = '1';
+      wrap.innerHTML = PEN_COLORS.map((c) => '<button class="pen" data-c="' + c + '" style="background:' + c + '"></button>').join('')
+        + '<button id="penErase" class="pen pen-erase">🧽</button>';
+      wrap.querySelectorAll('.pen[data-c]').forEach((b) => {
+        b.onclick = () => { penColor = b.dataset.c; penErase = false; markPens(); };
+      });
+      const er = $('penErase');
+      if (er) er.onclick = () => { penErase = true; markPens(); };
+    }
+    markPens();
+  }
+
+  function renderPaintBox() {
+    const box = $('paintBox');
+    if (!box) return;
+    const c = state.carve;
+    const n = c ? (c.count || 0) : 0;
+    const gone = !c || n >= Forge.CARVE_TOTAL;
+    box.classList.toggle('hidden', gone);
+    if (gone) {
+      if (paintMode) togglePaintMode();
+      return;
+    }
+    const ready = paintReady();
+    const btn = $('btnPaintMode');
+    btn.disabled = !ready;
+    btn.classList.toggle('active', paintMode);
+    btn.textContent = paintMode ? T('paint.stop') : T('paint.start');
+    $('paintPens').classList.toggle('hidden', !paintMode);
+    $('paintHint').textContent = ready
+      ? T('paint.hint')
+      : T('paint.locked', { n: Forge.CARVE_STEP });
+    if (paintMode && ready) renderPens();
+  }
+
+  function togglePaintMode() {
+    if (!paintReady()) { toast(T('paint.locked', { n: Forge.CARVE_STEP }), 3600); return; }
+    paintMode = !paintMode;
+    if (paintMode) {
+      loadPaintFromState();
+      renderPens();
+      toast(T('paint.hint'), 4000);
+    } else {
+      flushPaint();
+    }
+    const scene = $('forgeScene');
+    if (scene) scene.classList.toggle('painting', paintMode);
+    renderPaintBox();
+  }
+
+  function bindPaintSurface() {
+    const svg = document.querySelector('#forgeScene svg');
+    if (!svg || svg.dataset.paintBound === '1') return;
+    svg.dataset.paintBound = '1';
+    svg.addEventListener('pointerdown', (e) => {
+      if (!paintMode || !paintReady()) return;
+      e.preventDefault();
+      e.stopPropagation();
+      loadPaintFromState();
+      painting = true;
+      paintLast = paintPos(e);
+      try { svg.setPointerCapture(e.pointerId); } catch (err) { }
+    });
+    svg.addEventListener('pointermove', (e) => {
+      if (!painting) return;
+      e.preventDefault();
+      const p = paintPos(e);
+      paintStroke(paintLast, p);
+      paintLast = p;
+    });
+    const end = () => {
+      if (!painting) return;
+      painting = false;
+      paintLast = null;
+      flushPaint();
+    };
+    svg.addEventListener('pointerup', end);
+    svg.addEventListener('pointercancel', end);
+  }
+
+  /* ---------- 桌上成品（自由摆放，可拖动） ---------- */
+  const WORK_MAX = 10;   // 本地存储有限：桌上最多留 10 件
+
+  function freeWorkX() {
+    const used = (state.works || []).map((w) => Number(w.x) || 0);
+    let x = 175;
+    while (x < 480 && used.some((u) => Math.abs(u - x) < 52)) x += 52;
+    return Math.min(480, x);
+  }
+
+  function addWork() {
+    const c = state.carve;
+    if (!c) return null;
+    if (!Array.isArray(state.works)) state.works = [];
+    if (state.works.length >= WORK_MAX) return null;
+    const w = {
+      id: uid(),
+      obj: c.obj || '',
+      paint: c.paint || '',
+      mat: Forge.matId(state.strikes),
+      name: c.name || '',
+      x: freeWorkX(),
+      y: 318,
+    };
+    state.works.push(w);
+    return w;
+  }
+
+  // 150 次雕完：把作品摆到桌上，手上的料清空，等选下一个物体
+  function finishWork() {
+    const c = state.carve;
+    if (!c) return null;
+    const w = addWork();
+    if (!w) return null;
+    state.carve = null;
+    if (paintMode) togglePaintMode();
+    paintLoaded = '';
+    if (paintCtx) paintCtx.clearRect(0, 0, PAINT_W, PAINT_H);
+    Forge.setCarve(null);
+    Forge.setPaint('');
+    saveState();
+    renderForgeStats();
+    confetti();
+    Forge.chime();
+    toast(T('work.placed', { name: w.name || '' }), 4400);
+    return w;
+  }
+
+  function onWorkMove(id, x, y, moved) {
+    const w = (state.works || []).find((k) => k.id === id);
+    if (!w) return;
+    if (!moved) { openWorkModal(id); return; }
+    w.x = x;
+    w.y = y;
+    saveState();
+  }
+
+  function openWorkModal(id) {
+    const w = (state.works || []).find((k) => k.id === id);
+    if (!w) return;
+    const mi = Forge.MATERIALS.findIndex((m) => m.id === w.mat);
+    const matName = mi >= 0 ? T(Forge.MATERIALS[mi].key) : '';
+    openModal(T('work.title'), `
+      <p class="muted">${escapeHtml(T('work.hint'))}</p>
+      <div class="acct-row"><span class="muted">${escapeHtml(T('carve.objName', { name: w.name || '' }))}</span></div>
+      <div class="acct-row"><span class="muted">${escapeHtml(matName)}</span></div>
+      <div class="modal-row" style="flex-direction:column;gap:8px">
+        <button id="btnWorkDel" class="btn btn-danger btn-block">${escapeHtml(T('work.delete'))}</button>
+        <button id="btnWorkClose" class="btn btn-ghost btn-block">${escapeHtml(T('carve.cancel'))}</button>
+      </div>`);
+    $('btnWorkDel').onclick = () => {
+      openModal(T('work.delTitle'), `
+        <p>${escapeHtml(T('work.delBody', { name: w.name || '' }))}</p>
+        <div class="modal-row">
+          <button id="btnWorkDelGo" class="btn btn-danger btn-block">${escapeHtml(T('work.delGo'))}</button>
+          <button id="btnWorkDelNo" class="btn btn-ghost btn-block">${escapeHtml(T('carve.cancel'))}</button>
+        </div>`);
+      $('btnWorkDelGo').onclick = () => {
+        state.works = (state.works || []).filter((k) => k.id !== id);
+        saveState();
+        closeModal();
+        renderForgeStats();
+        toast(T('work.deleted'));
+      };
+      $('btnWorkDelNo').onclick = closeModal;
+    };
+    $('btnWorkClose').onclick = closeModal;
+  }
+
+  // 抛光完成后的收尾弹窗
+  function openFinishModal(c, placed) {
+    openModal(T('finish.title'), `
+      <p>${escapeHtml(placed ? T('finish.body', { name: c.name || '' }) : T('work.full', { n: WORK_MAX }))}</p>
+      <div class="modal-row" style="flex-direction:column;gap:8px">
+        <button id="btnFinishPick" class="btn btn-accent btn-block">${escapeHtml(placed ? T('finish.pick') : T('finish.retry'))}</button>
+        ${placed ? '' : '<button id="btnFinishChange" class="btn btn-block">' + escapeHtml(T('carve.btnReplace')) + '</button>'}
+        <button id="btnFinishLater" class="btn btn-ghost btn-block">${escapeHtml(placed ? T('finish.later') : T('carve.cancel'))}</button>
+      </div>`);
+    $('btnFinishPick').onclick = () => {
+      if (placed) { closeModal(); openCarvePickModal(); return; }
+      const w = finishWork();
+      if (w) { closeModal(); openCarvePickModal(); }
+      else { toast(T('work.full', { n: WORK_MAX }), 4200); }
+    };
+    const chg = $('btnFinishChange');
+    if (chg) chg.onclick = () => { closeModal(); openCarvePickModal(); };
+    $('btnFinishLater').onclick = closeModal;
   }
 
   /* ---------- 选物体：上传图片 → 拖框圈住 → 自动抠背景 ---------- */
@@ -1312,7 +1618,10 @@
       try {
         const out = cutObject(cv, s);
         if (!out) { if ($('cropStatus')) $('cropStatus').textContent = T('carve.pickFail'); return; }
-        state.carve = { obj: out.obj, sil: out.sil, name: cropName || T('common.object'), count: 0, milestone: 0 };
+        state.carve = { obj: out.obj, sil: out.sil, name: cropName || T('common.object'), count: 0, milestone: 0, paint: '' };
+        if (paintMode) togglePaintMode();
+        paintLoaded = '';
+        if (paintCtx) paintCtx.clearRect(0, 0, PAINT_W, PAINT_H);
         saveState();
         closeModal();
         renderForgeStats();
@@ -1479,6 +1788,7 @@
   }
 
   function onStoneClick() {
+    if (paintMode) return; // 上色模式下点在料上是涂色
     if (state.credit <= 0) {
       toast(T('toast.noCredit'));
       return;
@@ -2126,6 +2436,7 @@
     try {
       rollDailyTasks(); // 隔天再打开：先把昨天剩的安排清掉，并提示一声
       Forge.init($('forgeScene'), onStoneClick);
+      bindPaintSurface();
       renderAll();
       awardCarve();
     } catch (e) {
@@ -2179,6 +2490,8 @@
       onCarve();
     };
     $('btnCarvePick').onclick = askReplaceCarve;
+    $('btnPaintMode').onclick = togglePaintMode;
+    Forge.onWorkMove = onWorkMove;
     // 点材质那一行看六级材质演化；点雕刻进度条看雕刻过程
     $('matRow').onclick = openMatLadderModal;
     $('carveProgWrap').onclick = openCarveStageModal;
