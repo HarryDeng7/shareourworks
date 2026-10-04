@@ -33,14 +33,8 @@
   ];
   const CARVE_MAX = 150; // 材质封顶：打卡 150 天 = 钻石
 
-  /* 形状：按「我和好友合计敲击数」升级 —— 决定这块料长什么样子（材质不管形状） */
-  const SHAPES = [
-    { id: 'stone', at: 0, key: 'forge.shape.stone' },
-    { id: 'ingot', at: 20, key: 'forge.shape.ingot' },
-    { id: 'gem', at: 100, key: 'forge.shape.gem' },
-  ];
-  // 落锤点跟着形状走（形状不同，料面高低不同）
-  const IMPACT = { stone: { x: 366, y: 254 }, ingot: { x: 366, y: 272 }, gem: { x: 360, y: 272 } };
+  // 落锤点：这块石料正面下锤的位置（形状不再变化，固定一个点）
+  const ROCK_HIT = { x: 360, y: 276 };
   // 雕刻：一次一次把这块料凿成图片里的物体（形状 50 次 → 上色 50 次 → 抛光 50 次）
   const CARVE_STEP = 50;
   const CARVE_TOTAL = 150;
@@ -59,12 +53,6 @@
     let m = MATERIALS[0];
     for (let i = 0; i < MATERIALS.length; i++) if ((days || 0) >= MATERIALS[i].at) m = MATERIALS[i];
     return m;
-  }
-
-  function shapeOf(total) {
-    let s = SHAPES[0];
-    for (let i = 0; i < SHAPES.length; i++) if ((total || 0) >= SHAPES[i].at) s = SHAPES[i];
-    return s;
   }
 
   // 「距下一级材质还差几天」用
@@ -302,10 +290,10 @@
 
   <!-- 桌上的原材料：石头 → 铁锭 → 金锭 → 钻石（按两人合计敲击数升级） -->
   <ellipse id="itemGlow" cx="330" cy="302" rx="58" ry="10" fill="#f59e0b" opacity="0.14"/>
-  <g id="item" class="stone-hit" data-shape="stone" data-material="stone">
+  <g id="item" class="stone-hit" data-material="stone">
     <!-- #piece 是「这块料整体」：雕刻时用蒙版把块体一点点凿掉，只留下物体的轮廓 -->
     <g id="piece">
-      <!-- 形状（按合计敲击升级）：石块 / 锭形 / 宝石形，颜色交给材质渐变 -->
+      <!-- 这块料：棱角分明的石料，长什么样固定，颜色由材质（打卡天数）决定 -->
       <g id="shape">
         <g id="shape-stone">
           <path class="body" d="M284,300 L286,278 L296,262 L312,252 L338,250 L362,258 L376,276 L377,300 Z" fill="url(#matGrad)" stroke-width="2"/>
@@ -319,25 +307,6 @@
             <path d="M306,282 L322,272 L348,278 L352,296 L318,296 Z" opacity="0.06"/>
           </g>
           <path class="ridge" d="M286,278 L306,282 L318,296M312,252 L322,272 L348,278M338,250 L322,272M362,258 L348,278" stroke-width="1.2" opacity="0.4" fill="none"/>
-        </g>
-        <g id="shape-ingot" class="hidden">
-          <path class="body" d="M294,282 L366,282 L378,302 L282,302 Z" fill="url(#matGrad)" stroke-width="2"/>
-          <path class="edge" d="M300,270 L360,270 L366,282 L294,282 Z" fill="url(#matTop)" stroke-width="1.5"/>
-          <path class="hl" d="M302,274 L358,274" stroke-width="1.5" opacity="0.5" stroke-linecap="round"/>
-        </g>
-        <g id="shape-gem" class="hidden">
-          <path class="body" d="M312,266 L348,266 L366,284 L330,302 L294,284 Z" fill="url(#matGrad)" stroke-width="2"/>
-          <path d="M312,266 L348,266 L336,284 L324,284 Z" fill="#ffffff" opacity="0.3"/>
-          <g class="facet" stroke-width="1.2" opacity="0.7" fill="none">
-            <path d="M294,284 L366,284"/>
-            <path d="M312,266 L324,284"/><path d="M348,266 L336,284"/>
-            <path d="M324,284 L330,302"/><path d="M336,284 L330,302"/>
-            <path d="M294,284 L330,302"/><path d="M366,284 L330,302"/>
-          </g>
-          <g class="hl" stroke-width="2" stroke-linecap="round">
-            <path class="gem-spark" d="M354,246 L354,236 M349,241 L359,241"/>
-            <path class="gem-spark d2" d="M296,262 L296,254 M292,258 L300,258"/>
-          </g>
         </g>
       </g>
       <!-- 凿痕：雕刻过程中越来越明显，块体被凿掉后自然消失 -->
@@ -358,11 +327,6 @@
           <path class="gem-spark d3" d="M330,224 L330,216 M326,220 L334,220"/>
         </g>
       </g>
-      <g id="cracks" stroke="#0f172a" stroke-width="2.4" fill="none" stroke-linecap="round" opacity="0">
-        <path d="M308,262 L316,278 L311,292"/>
-        <path d="M340,258 L333,274 L344,288"/>
-        <path d="M322,296 L316,301"/>
-      </g>
     </g>
   </g>
   <ellipse cx="330" cy="301" rx="66" ry="9" fill="#000" opacity="0.25"/>
@@ -377,7 +341,6 @@
     itemEl: null,
     pieceEl: null,
     glowEl: null,
-    cracksEl: null,
     chiselsEl: null,
     carveFill: null,
     carveCol: null,
@@ -394,7 +357,6 @@
     gradStops: null,
     material: '',
     matObj: null,
-    shape: '',
     myDays: 0,
     painted: false,
     armAngle: 0,
@@ -412,7 +374,6 @@
       this.itemEl = svg.querySelector('#item');
       this.pieceEl = svg.querySelector('#piece');
       this.glowEl = svg.querySelector('#itemGlow');
-      this.cracksEl = svg.querySelector('#cracks');
       this.chiselsEl = svg.querySelector('#chisels');
       this.carveFill = svg.querySelector('#carveFill');
       this.carveCol = svg.querySelector('#carveCol');
@@ -451,33 +412,19 @@
       }, 3400);
     },
 
-    /* 更新：形状（两人合计敲击）+ 材质（我自己的打卡天数）；两者互不影响 */
-    update({ total, myDays }) {
-      total = total || 0;
+    /* 更新：只看材质（我自己的打卡天数）—— 这块料长什么样是固定的，材质决定颜色 */
+    update({ myDays }) {
       myDays = myDays || 0;
       this.myDays = myDays;
-      const shape = shapeOf(total);
       const mat = matOf(myDays);
       this.matObj = mat;
 
-      if (shape.id !== this.shape) {
-        this.shape = shape.id;
-        this.itemEl.dataset.shape = shape.id;
-        this.itemEl.querySelectorAll('#shape > g').forEach((g) => {
-          g.classList.toggle('hidden', g.id !== 'shape-' + shape.id);
-        });
-        if (this.painted) this.morph();
-      }
-      // 材质只管颜色：换材质不动形状，升级时也弹一下
       if (mat.id !== this.material) {
         this.material = mat.id;
         this.itemEl.dataset.material = mat.id;
         this.applyMaterial(mat);
         if (this.painted) this.morph();
       }
-      // 石块形状：越接近「锭形」裂纹越明显
-      this.cracksEl.style.opacity =
-        (shape.id === 'stone' ? Math.min(1, total / SHAPES[1].at) * 0.85 : 0).toFixed(3);
 
       this.syncCarve();
 
@@ -642,7 +589,7 @@
     /* 凿下来的碎屑（比敲击的火星更小更碎） */
     chipImpact() {
       const fx = fxOf(this.material);
-      const at = IMPACT[this.shape] || IMPACT.stone;
+      const at = ROCK_HIT;
       this.itemEl.animate(
         [
           { transform: 'translate(0,0) rotate(0)' },
@@ -692,7 +639,7 @@
     impact() {
       const svg = this.svg;
       const fx = fxOf(this.material);
-      const at = IMPACT[this.shape] || IMPACT.stone;
+      const at = ROCK_HIT;
       // 材料震动
       this.itemEl.animate(
         [
@@ -703,8 +650,6 @@
         ],
         { duration: 340, easing: 'ease-out' }
       );
-      // 裂纹闪光
-      this.cracksEl.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 320 });
 
       const CX = at.x, CY = at.y; // 锤子落点（跟着形状走）
       // 火星
@@ -766,16 +711,13 @@
 
   function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
-  Forge.MATERIALS = MATERIALS; // 6 级材质（按我的打卡天数）
-  Forge.SHAPES = SHAPES;       // 3 种形状（按两人合计敲击）
+  Forge.MATERIALS = MATERIALS; // 6 级材质（按我自己的打卡天数）
   Forge.CARVE_STEP = CARVE_STEP;
   Forge.CARVE_TOTAL = CARVE_TOTAL;
   Forge.OBJ_BOX = OBJ_BOX;
   Forge.previewRock = previewRock;
   Forge.previewCube = previewCube;
   Forge.CUBE6 = CUBE6;
-  Forge.shapeId = function (total) { return shapeOf(total).id; };
-  Forge.shapeName = function (total) { return T(shapeOf(total).key); };
   Forge.matId = function (days) { return matOf(days).id; };
   Forge.matName = function (days) { return T(matOf(days).key); };
 

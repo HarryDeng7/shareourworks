@@ -939,31 +939,23 @@
     toast(T('toast.checkinOk'), 3400);
   }
   /* ---------- 石匠工坊 ---------- */
-  // 桌上的材料按「你和好友合计的敲击数」升级：20 铁锭 / 100 金锭 / 150 钻石
-  function combinedStrikes() {
-    const b = state.buddy;
-    return state.strikes + (b ? (b.strikes || 0) : 0);
-  }
-
   function renderForgeStats() {
     const b = state.buddy;
-    const total = combinedStrikes();
     const myDays = state.checkedDays.length;
-    $('statTotal').textContent = total;
     $('statMine').textContent = state.strikes;
     $('statBuddy').textContent = b ? (b.strikes || 0) : 0;
     $('statCredit').textContent = state.credit;
     $('statCarve').textContent = state.carveCredit || 0;
     $('statDays').textContent = myDays;
     Forge.setCarve(state.carve);
-    Forge.update({ total: total, myDays: myDays });
-    renderForgeHint(total);
+    Forge.update({ myDays: myDays });
+    renderForgeHint();
     renderCarvePanel();
     renderForgeLegend();
   }
 
-  // 提示语跟着桌上材料和剩余机会走
-  function renderForgeHint(total) {
+  // 提示语跟着当前材质和剩余机会走
+  function renderForgeHint() {
     const el = $('forgeHint');
     if (!el) return;
     const noCredit = state.credit <= 0;
@@ -973,15 +965,14 @@
     el.classList.toggle('warn', noCredit);
   }
 
-  // 图例：材料看「两人合计敲击数」，雕刻阶段看「你自己的打卡天数」
+  // 图例：材质看「我自己的打卡天数」，作品进度看「雕刻次数」
   function renderForgeLegend() {
     const el = $('carveLegend');
     if (!el) return;
-    const shapes = Forge.SHAPES.map((s) => T(s.key) + '(' + s.at + ')').join(' → ');
     const mats = Forge.MATERIALS.map((m) => T(m.key) + '(' + m.at + ')').join(' → ');
     const step = Forge.CARVE_STEP;
     const c = state.carve;
-    const lines = [T('forge.legendShape', { ladder: shapes }), T('forge.legendMat', { ladder: mats })];
+    const lines = [T('forge.legendMat', { ladder: mats })];
     lines.push(c && (c.count || 0) >= Forge.CARVE_TOTAL
       ? T('forge.workDone', { name: c.name || '' })
       : T('forge.legendWork', { a: step, b: step * 2, c: step * 3 }));
@@ -1136,7 +1127,7 @@
       <p class="muted">${escapeHtml(T('mat.intro'))}</p>
       <div class="mat-grid">${cards}</div>
       <p class="muted" style="margin-top:10px">${escapeHtml(note)}</p>
-      <p class="muted" style="margin-top:6px;font-size:12px">${escapeHtml(T('mat.shapeNote'))}</p>`);
+      `);
   }
 
   /* ---------- 雕刻过程（点雕刻进度条打开）：石头 → 正方体 → 六面六色 → 亮面 ---------- */
@@ -1492,7 +1483,6 @@
       toast(T('toast.noCredit'));
       return;
     }
-    const before = Forge.shapeId(combinedStrikes());
     state.credit -= 1;
     state.strikes += 1;
     state.strikesUpdatedAt = Date.now();
@@ -1500,15 +1490,6 @@
     schedulePush();
     renderForgeStats();
     Forge.strike();
-    // 这一下刚好把形状敲升级了：等锤子落下时来一波庆祝
-    const after = Forge.shapeId(combinedStrikes());
-    if (after !== before) {
-      setTimeout(() => {
-        confetti();
-        Forge.chime();
-        toast(T('forge.tierUp', { item: Forge.shapeName(combinedStrikes()) }), 3200);
-      }, 380);
-    }
   }
 
   /* ---------- 历史记录 ---------- */
@@ -1539,7 +1520,7 @@
     if (!set.has(todayStr())) d0.setDate(d0.getDate() - 1);
     while (set.has(fmtDate(d0))) { streak++; d0.setDate(d0.getDate() - 1); }
     const b = state.buddy;
-    const total = state.strikes + (b ? (b.strikes || 0) : 0);
+    const total = state.strikes; // 只统计自己敲的次数
     $('histStats').innerHTML = `
       <div class="hist-stat"><span>${state.checkedDays.length}</span><label>${escapeHtml(T('hist.checkedDays'))}</label></div>
       <div class="hist-stat"><span>${streak}</span><label>${escapeHtml(T('hist.streak'))}</label></div>
