@@ -1148,7 +1148,14 @@
       <p class="muted">${escapeHtml(T('mat.intro'))}</p>
       <div class="mat-grid">${cards}</div>
       <p class="muted" style="margin-top:10px">${escapeHtml(note)}</p>
-      `);
+      ${devBox('strikes', hits, 150, [0, 8, 25, 50, 90, 150])}`);
+    bindDevBox('strikes', (n) => {
+      state.strikes = n;
+      state.strikesUpdatedAt = Date.now();
+      saveState();
+      schedulePush();
+      renderForgeStats();
+    }, openMatLadderModal);
   }
 
   /* ---------- 雕刻过程（点雕刻进度条打开）：石头 → 正方体 → 六面六色 → 亮面 ---------- */
@@ -1170,7 +1177,50 @@
     openModal(T('stg.title'), `
       <p class="muted">${escapeHtml(T('stg.intro'))}</p>
       <div class="stg-strip">${cells}</div>
-      <p class="muted" style="margin-top:10px;font-size:12px">${escapeHtml(T('stg.note'))}</p>`);
+      <p class="muted" style="margin-top:10px;font-size:12px">${escapeHtml(T('stg.note'))}</p>
+      ${c ? devBox('carve', n, Forge.CARVE_TOTAL, [0, 50, 100, 150]) : (isFree() ? '<p class="muted">' + escapeHtml(T('dev.needObj')) + '</p>' : '')}`);
+    bindDevBox('carve', (v) => {
+      if (!state.carve) return;
+      state.carve.count = v;
+      state.carve.milestone = v; // 直接设定就不弹里程碑了
+      if (paintMode && !paintReady()) togglePaintMode();
+      saveState();
+      renderForgeStats();
+    }, openCarveStageModal);
+  }
+
+  /* ---------- 内部账号专用：直接切换进度（只有 FREE_USERS 里的账号看得到） ---------- */
+  function devBox(kind, cur, max, quick) {
+    if (!isFree()) return '';
+    const title = kind === 'strikes' ? T('dev.strikesTitle') : T('dev.carveTitle');
+    const btns = quick.map((n) => `<button class="btn btn-sm dev-set" data-n="${n}">${n}</button>`).join('');
+    return `
+      <div class="dev-box">
+        <div class="muted" style="margin-bottom:6px">${escapeHtml(title)}</div>
+        <div class="dev-row">
+          <input id="devRange" class="dev-range" type="range" min="0" max="${max}" step="1" value="${cur}">
+          <span id="devVal" class="dev-val">${cur}</span>
+        </div>
+        <div class="dev-quick">${btns}</div>
+        <div class="modal-row"><button id="btnDevApply" class="btn btn-accent btn-sm btn-block">${escapeHtml(T('dev.apply'))}</button></div>
+      </div>`;
+  }
+
+  function bindDevBox(kind, apply, reopen) {
+    if (!isFree()) return;
+    const r = $('devRange');
+    if (!r) return;
+    const v = $('devVal');
+    r.oninput = () => { v.textContent = r.value; };
+    document.querySelectorAll('#modalBody .dev-set').forEach((b) => {
+      b.onclick = () => { r.value = b.dataset.n; v.textContent = b.dataset.n; };
+    });
+    $('btnDevApply').onclick = () => {
+      const n = Math.max(0, Math.min(Number(r.max) || 0, Number(r.value) || 0));
+      apply(n);
+      toast(T('dev.done', { n: n }));
+      reopen();
+    };
   }
 
   /* ---------- 自己上色（彩笔） ---------- */

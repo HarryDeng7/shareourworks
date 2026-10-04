@@ -696,3 +696,17 @@ input.item-text:focus { background: rgba(245, 158, 11, 0.1); box-shadow: 0 0 0 1
 /* 桌上成品：拖动摆放 */
 #works .work { transition: filter 0.15s ease; }
 #works .work:hover { filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5)); }
+
+/* ===== 内部账号的进度调试块 ===== */
+.dev-box {
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.4);
+}
+.dev-row { display: flex; align-items: center; gap: 10px; }
+.dev-range { flex: 1; accent-color: var(--accent); height: 20px; }
+.dev-val { flex: none; min-width: 34px; text-align: right; font-weight: 700; color: var(--accent); }
+.dev-quick { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.dev-quick .btn { padding: 4px 10px; font-size: 12px; }
