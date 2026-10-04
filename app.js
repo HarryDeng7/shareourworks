@@ -21,6 +21,13 @@
     return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   }
 
+  // 「无限敲击 / 无限雕刻」的账号（内部测试用），改这里就能加人
+  const FREE_USERS = ['222'];
+  function isFree() {
+    if (!state || !state.account) return false;
+    return FREE_USERS.indexOf(String(state.account.username || '').toLowerCase()) >= 0;
+  }
+
   function escapeHtml(s) {
     return String(s == null ? '' : s)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -952,8 +959,8 @@
     const myDays = state.checkedDays.length;
     $('statMine').textContent = state.strikes;
     $('statBuddy').textContent = b ? (b.strikes || 0) : 0;
-    $('statCredit').textContent = state.credit;
-    $('statCarve').textContent = state.carveCredit || 0;
+    $('statCredit').textContent = isFree() ? '∞' : state.credit;
+    $('statCarve').textContent = isFree() ? '∞' : (state.carveCredit || 0);
     $('statDays').textContent = myDays;
     Forge.setCarve(state.carve);
     Forge.setPaint(state.carve ? (state.carve.paint || '') : '');
@@ -969,7 +976,7 @@
   function renderForgeHint() {
     const el = $('forgeHint');
     if (!el) return;
-    const noCredit = state.credit <= 0;
+    const noCredit = !isFree() && state.credit <= 0;
     el.textContent = noCredit
       ? T('forge.hintNoCredit')
       : T('forge.hint', { item: Forge.matName(state.strikes) });
@@ -1010,6 +1017,7 @@
     if (!state) return;
     const t = todayStr();
     if (state.carveDay === t) return;
+    if (isFree()) { state.carveDay = t; saveState(); return; } // 无限账号不用攒
     const done = new Set(state.completions[t] || []);
     if (!state.schedule.length || !state.schedule.every((i) => done.has(i.id))) return;
     state.carveDay = t;
@@ -1038,12 +1046,12 @@
     if (!c) msg = T('carve.needObj');
     else if (pending) msg = T('carve.milestoneTip', { name: c.name || '' });
     else if (done) msg = T('carve.done');
-    else if (state.carveCredit <= 0) msg = T('carve.needCredit');
-    else msg = T('carve.credit', { n: state.carveCredit });
+    else if (!isFree() && state.carveCredit <= 0) msg = T('carve.needCredit');
+    else msg = T('carve.credit', { n: isFree() ? '∞' : state.carveCredit });
     $('carveStatus').textContent = msg;
     const btn = $('btnCarve');
     const pick = $('btnCarvePick');
-    btn.disabled = !!c && !pending && (done || state.carveCredit <= 0);
+    btn.disabled = !!c && !pending && (done || (!isFree() && state.carveCredit <= 0));
     btn.textContent = !c ? T('carve.btnPick') : (pending ? T('carve.btnChoose') : T('carve.btnCarve'));
     pick.classList.toggle('hidden', !c);
     pick.textContent = T('carve.btnChange');
@@ -1057,8 +1065,8 @@
     const step = Forge.CARVE_STEP;
     if (n0 >= Forge.CARVE_TOTAL) { toast(T('carve.done')); return; }
     if (n0 > 0 && n0 % step === 0 && (c.milestone || 0) < n0) { openCarveMilestoneModal(); return; }
-    if (state.carveCredit <= 0) { toast(T('carve.needCredit'), 3200); return; }
-    state.carveCredit -= 1;
+    if (!isFree() && state.carveCredit <= 0) { toast(T('carve.needCredit'), 3200); return; }
+    if (!isFree()) state.carveCredit -= 1;
     c.count = n0 + 1;
     saveState();
     renderForgeStats();
@@ -1789,11 +1797,11 @@
 
   function onStoneClick() {
     if (paintMode) return; // 上色模式下点在料上是涂色
-    if (state.credit <= 0) {
+    if (!isFree() && state.credit <= 0) {
       toast(T('toast.noCredit'));
       return;
     }
-    state.credit -= 1;
+    if (!isFree()) state.credit -= 1;
     state.strikes += 1;
     state.strikesUpdatedAt = Date.now();
     saveState();
