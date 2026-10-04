@@ -650,7 +650,7 @@
   }
   // 每秒刷新倒计时数字，并自动把到点仍未完成的任务标记为「超时未完成」
   // 任务的今日截止时间戳：优先「限时倒计时」，其次「几点之前完成」。
-  // 只有当任务是「在截止时间之前就存在」时才算数（刚加进来就填了个已经过去的时间，不立刻判超时）
+  // 到点还没完成就直接算未完成 —— 不管这条任务是几点建出来的。
   function taskDeadline(it) {
     if (!it) return 0;
     if (it.dueAt) return it.dueAt;
@@ -660,8 +660,7 @@
     if (!isFinite(h) || !isFinite(m)) return 0;
     const d = new Date();
     d.setHours(h, m, 0, 0);
-    const dl = d.getTime();
-    return (Number(it.createdAt) || 0) <= dl ? dl : 0;
+    return d.getTime();
   }
 
   // 到点还没完成的任务：直接记成未完成。渲染前也会跑一次，界面永远不会先显示一个过期的勾
@@ -793,10 +792,17 @@
       missed: false, createdAt: Date.now(),
     });
     state.scheduleUpdatedAt = Date.now();
+    const pickedTime = time || '';
     $('newItemText').value = '';
     $('newItemTime').value = '';
     $('newItemDue').value = '0';
     saveState();
+    markMissed(); // 填的时间已经过了的话，这里就直接标成「超时未完成」
+    // 先说清楚：这条会立刻算未完成
+    const justAdded = state.schedule[state.schedule.length - 1];
+    if (pickedTime && taskDeadline(justAdded) && taskDeadline(justAdded) <= Date.now()) {
+      toast(T('toast.timePast'), 6000);
+    }
     schedulePush();
     renderMySchedule();
     renderCheckin();
