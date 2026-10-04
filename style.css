@@ -667,3 +667,13 @@ input.item-text:focus { background: rgba(245, 158, 11, 0.1); box-shadow: 0 0 0 1
 .stg-name { font-size: 12px; font-weight: 700; margin-top: 6px; }
 .stg-n { font-size: 11px; color: var(--muted); }
 .pv { display: block; margin: 0 auto; }
+/* 超时未完成：直接打叉（红色），算没完成 */
+.item-check.miss {
+  color: #f87171;
+  border-color: rgba(248, 113, 113, 0.55);
+  background: rgba(248, 113, 113, 0.12);
+  opacity: 1;
+  cursor: default;
+  font-weight: 700;
+}
+.item-check.miss.locked { opacity: 1; }

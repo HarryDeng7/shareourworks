@@ -81,7 +81,7 @@
         }
         s.schedule = (s.schedule || []).map((i) => ({
           id: String(i.id), text: String(i.text || ''), time: String(i.time || ''),
-          dueAt: Number(i.dueAt) || 0, missed: !!i.missed
+          dueAt: Number(i.dueAt) || 0, missed: !!i.missed, createdAt: Number(i.createdAt) || 0
         }));
         if (!s.syncStat || typeof s.syncStat.ok !== 'number') {
           s.syncStat = { ok: 0, fail: 0, lastOk: 0, lastFail: 0, log: [] };
@@ -278,7 +278,7 @@
     if (!b.scheduleUpdatedAt || d.su >= b.scheduleUpdatedAt) {
       b.schedule = (d.s || []).map((i) => ({
         id: String(i.id), text: String(i.text || ''), time: String(i.time || ''),
-        dueAt: Number(i.dueAt) || 0, missed: !!i.missed
+        dueAt: Number(i.dueAt) || 0, missed: !!i.missed, createdAt: Number(i.createdAt) || 0
       }));
       b.scheduleUpdatedAt = d.su;
     }
@@ -634,21 +634,43 @@
     return h > 0 ? h + ':' + p(m) + ':' + p(s) : p(m) + ':' + p(s);
   }
   // 每秒刷新倒计时数字，并自动把到点仍未完成的任务标记为「超时未完成」
-  function tickCountdowns() {
-    if (!state) return;
+  // 任务的今日截止时间戳：优先「限时倒计时」，其次「几点之前完成」。
+  // 只有当任务是「在截止时间之前就存在」时才算数（刚加进来就填了个已经过去的时间，不立刻判超时）
+  function taskDeadline(it) {
+    if (!it) return 0;
+    if (it.dueAt) return it.dueAt;
+    if (!it.time) return 0;
+    const parts = String(it.time).split(':');
+    const h = Number(parts[0]), m = Number(parts[1]);
+    if (!isFinite(h) || !isFinite(m)) return 0;
+    const d = new Date();
+    d.setHours(h, m, 0, 0);
+    const dl = d.getTime();
+    return (Number(it.createdAt) || 0) <= dl ? dl : 0;
+  }
+
+  // 到点还没完成的任务：直接记成未完成。渲染前也会跑一次，界面永远不会先显示一个过期的勾
+  function markMissed() {
+    if (!state) return false;
     const t = Date.now();
     const doneSet = new Set(state.completions[todayStr()] || []);
     let changed = false;
     state.schedule.forEach((it) => {
-      if (it.dueAt && !it.missed && !doneSet.has(it.id) && t >= it.dueAt) { it.missed = true; changed = true; }
+      if (it.missed || doneSet.has(it.id)) return;
+      const dl = taskDeadline(it);
+      if (dl && t >= dl) { it.missed = true; changed = true; }
     });
     if (changed) {
       state.scheduleUpdatedAt = Date.now();
       saveState();
       schedulePush();
-      renderAll();
-      return;
     }
+    return changed;
+  }
+
+  function tickCountdowns() {
+    if (!state) return;
+    if (markMissed()) { renderAll(); return; }
     const refresh = (scope, items) => {
       if (!scope) return;
       scope.querySelectorAll('[data-cd]').forEach((el) => {
@@ -658,7 +680,11 @@
         if (left <= 0) {
           // 好友端展示用本地判断；本人这边会在上面分支先标记 missed 并重渲染
           const item = el.closest('.item');
-          if (item) item.classList.add('miss');
+          if (item) {
+            item.classList.add('miss');
+            const ck = item.querySelector('.item-check');
+            if (ck) { ck.classList.add('locked', 'miss'); ck.textContent = '✗'; }
+          }
           const due = el.closest('.item-due');
           if (due) { due.classList.add('miss'); due.textContent = T('list.missedShort'); }
           return;
@@ -676,15 +702,22 @@
     if (!state.schedule.length) {
       list.innerHTML = '<div class="item-empty">' + escapeHtml(T('list.emptyMine')) + '</div>';
     } else {
-      list.innerHTML = state.schedule.map((it) => `
-        <div class="item ${done.has(it.id) ? 'done' : ''} ${(!done.has(it.id) && it.missed) ? 'miss' : ''}">
-          <button class="item-check ${done.has(it.id) ? 'on' : ''} ${(!done.has(it.id) && it.missed) ? 'locked' : ''}" data-id="${it.id}">✓</button>
-          <input class="item-text" value="${escapeHtml(it.text)}" data-id="${it.id}" maxlength="60" ${it.missed ? 'readonly' : ''}>
+      list.innerHTML = state.schedule.map((it) => {
+        const isDone = done.has(it.id);
+        const isMiss = !isDone && !!it.missed;
+        const dueHtml = (!isDone && it.dueAt)
+          ? `<span class="item-due ${isMiss ? 'miss' : ''}">${isMiss ? T('list.missed') : T('list.leftStart') + '<b data-cd="' + it.id + '">' + fmtCd(it.dueAt - Date.now()) + '</b>'}</span>`
+          : ((isMiss && it.time) ? `<span class="item-due miss">${T('list.missed')}</span>` : '');
+        return `
+        <div class="item ${isDone ? 'done' : ''} ${isMiss ? 'miss' : ''}">
+          <button class="item-check ${isDone ? 'on' : ''} ${isMiss ? 'locked miss' : ''}" data-id="${it.id}">${isMiss ? '✗' : '✓'}</button>
+          <input class="item-text" value="${escapeHtml(it.text)}" data-id="${it.id}" maxlength="60" ${isMiss ? 'readonly' : ''}>
           ${it.time ? `<span class="item-time">${escapeHtml(it.time)}</span>` : ''}
-          ${(!done.has(it.id) && it.dueAt) ? `<span class="item-due ${it.missed ? 'miss' : ''}">${it.missed ? T('list.missed') : T('list.leftStart') + '<b data-cd="' + it.id + '">' + fmtCd(it.dueAt - Date.now()) + '</b>'}</span>` : ''}
+          ${dueHtml}
           <button class="item-edit" data-id="${it.id}" title="${escapeHtml(T('list.edit'))}">✏️</button>
           <button class="item-del" data-id="${it.id}" title="${escapeHtml(T('list.del'))}">✕</button>
-        </div>`).join('');
+        </div>`;
+      }).join('');
     }
     const total = state.schedule.length;
     const cnt = state.schedule.filter((it) => done.has(it.id)).length;
@@ -739,7 +772,11 @@
     if (!text) { $('newItemText').focus(); return; }
     const time = $('newItemTime').value;
     const dueMin = Number($('newItemDue').value) || 0;
-    state.schedule.push({ id: uid(), text: text, time: time || '', dueAt: dueMin > 0 ? Date.now() + dueMin * 60000 : 0, missed: false });
+    state.schedule.push({
+      id: uid(), text: text, time: time || '',
+      dueAt: dueMin > 0 ? Date.now() + dueMin * 60000 : 0,
+      missed: false, createdAt: Date.now(),
+    });
     state.scheduleUpdatedAt = Date.now();
     $('newItemText').value = '';
     $('newItemTime').value = '';
@@ -812,14 +849,19 @@
     const done = new Set((b.completions && b.completions[t]) || []);
     const nowT = Date.now();
     list.innerHTML = b.schedule.map((it) => {
-      const budMissed = it.missed || (it.dueAt && nowT >= it.dueAt && !done.has(it.id));
-      const budDue = !done.has(it.id) && it.dueAt;
+      const isDone = done.has(it.id);
+      const dl = taskDeadline(it);
+      const budMissed = !isDone && (!!it.missed || !!(dl && nowT >= dl));
+      const budDue = !isDone && it.dueAt;
+      const dueHtml = budDue
+        ? `<span class="item-due ${budMissed ? 'miss' : ''}">${budMissed ? T('list.missed') : T('list.leftStart') + '<b data-cd="' + it.id + '">' + fmtCd(it.dueAt - nowT) + '</b>'}</span>`
+        : ((budMissed && it.time) ? `<span class="item-due miss">${T('list.missed')}</span>` : '');
       return `
-      <div class="item ${done.has(it.id) ? 'done' : ''} ${budDue && budMissed ? 'miss' : ''}">
-        <span class="item-check ${done.has(it.id) ? 'on' : ''}">✓</span>
+      <div class="item ${isDone ? 'done' : ''} ${budMissed ? 'miss' : ''}">
+        <span class="item-check ${isDone ? 'on' : ''} ${budMissed ? 'locked miss' : ''}">${budMissed ? '✗' : '✓'}</span>
         <span class="item-text">${escapeHtml(it.text)}</span>
         ${it.time ? `<span class="item-time">${escapeHtml(it.time)}</span>` : ''}
-        ${budDue ? `<span class="item-due ${budMissed ? 'miss' : ''}">${budMissed ? T('list.missed') : T('list.leftStart') + '<b data-cd="' + it.id + '">' + fmtCd(it.dueAt - nowT) + '</b>'}</span>` : ''}
+        ${dueHtml}
       </div>`;
     }).join('');
     const total = b.schedule.length;
@@ -2094,6 +2136,7 @@
 
   function renderAll() {
     if (!state) return;
+    markMissed();
     renderPair();
     renderMySchedule();
     renderBuddy();
