@@ -1730,16 +1730,12 @@
     openModal(T('rs.title'), `
       <p class="muted">${escapeHtml(T('rs.intro'))}</p>
       <textarea id="rsCode" class="modal-textarea" placeholder="${escapeHtml(T('rs.codePh'))}"></textarea>
-      <div class="modal-row"><input id="rsFile" class="input" type="file" accept=".txt,.json,text/plain"></div>
       <div class="modal-row"><button id="btnRsGo" class="btn btn-accent btn-block">${escapeHtml(T('rs.go'))}</button></div>
       <div id="rsStatus" class="modal-status"></div>`);
     let pendingRec = null; // 已解析、等待二次确认覆盖的记录
-    let fileText = '';
-    let src = 'paste';    // 最后一次输入来源：paste（粘贴框）/ file（文件）
-    const curText = () => (src === 'file' ? fileText : $('rsCode').value);
     const doRestore = () => {
       const st = $('rsStatus');
-      const rec = pendingRec || parseBackupText(curText());
+      const rec = pendingRec || parseBackupText($('rsCode').value);
       if (!rec || typeof rec !== 'object' || !rec.account || typeof rec.account !== 'object'
           || typeof rec.account.username !== 'string' || !/^[\w\u4e00-\u9fa5-]{2,16}$/.test(rec.account.username)
           || typeof rec.account.salt !== 'string' || typeof rec.account.hash !== 'string') {
@@ -1767,22 +1763,7 @@
       }
     };
     $('btnRsGo').onclick = doRestore;
-    $('rsCode').addEventListener('input', () => { src = 'paste'; pendingRec = null; });
-    $('rsFile').onchange = () => {
-      const f = $('rsFile').files && $('rsFile').files[0];
-      if (!f) return;
-      src = 'file';
-      fileText = '';
-      pendingRec = null;
-      $('rsStatus').textContent = T('rs.reading');
-      const reader = new FileReader();
-      reader.onload = () => {
-        fileText = String(reader.result || '');
-        $('rsStatus').textContent = fileText.trim() ? T('rs.read') : T('rs.empty');
-      };
-      reader.onerror = () => { $('rsStatus').textContent = T('rs.readFail'); };
-      reader.readAsText(f);
-    };
+    $('rsCode').addEventListener('input', () => { pendingRec = null; });
   }
 
   /* ---------- 配对卡片 ---------- */
