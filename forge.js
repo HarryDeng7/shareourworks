@@ -7,29 +7,29 @@
   /* 材质：按「我自己敲的次数」升级 —— 决定这块料是什么材料、什么颜色 */
   const MATERIALS = [
     { id: 'stone', at: 0, key: 'forge.stage0',
-      g: ['#7b8ba1', '#5c6b80', '#475569'], top: ['#b6c3d3', '#8b9bad'], stroke: '#334155', stroke2: '#64748b',
-      hl: '#94a3b8', facet: '#e2e8f0',
-      glow: '#f59e0b', glowOp: 0.14, sparks: ['#fbbf24', '#fcd34d'], debris: '#94a3b8', text: '#fbbf24' },
+      g: ['#b5ada0', '#9a9284', '#7d7568'], top: ['#d3cbba', '#b5ada0'], stroke: '#5f584d', stroke2: '#8d8577',
+      hl: '#e3dccd', facet: '#efe9dc',
+      glow: '#b08a5a', glowOp: 0.1, sparks: ['#c9b48f', '#d8c6a6'], debris: '#a9a294', text: '#7c5c36' },
     { id: 'ironOre', at: 8, key: 'forge.stage1',
-      g: ['#8d8078', '#6b5f56', '#4b413b'], top: ['#b9a99e', '#7a6a60'], stroke: '#3f3733', stroke2: '#6b5f56',
-      hl: '#a89a90', facet: '#e7ded6',
-      glow: '#c08457', glowOp: 0.13, sparks: ['#e0b088', '#c9926a'], debris: '#8a7b70', text: '#e8c9a8' },
+      g: ['#b59b85', '#967c68', '#78614f'], top: ['#d4bda6', '#b59b85'], stroke: '#5b4739', stroke2: '#8a745f',
+      hl: '#d8c4b1', facet: '#eee0d2',
+      glow: '#a9774f', glowOp: 0.1, sparks: ['#c9a07a', '#b98a62'], debris: '#a08672', text: '#7d5a3d' },
     { id: 'iron', at: 25, key: 'forge.stage2',
-      g: ['#b9c6d6', '#8b9bad', '#5c6b80'], top: ['#f1f5f9', '#9aa8b8'], stroke: '#475569', stroke2: '#64748b',
-      hl: '#f8fafc', facet: '#f1f5f9',
-      glow: '#94a3b8', glowOp: 0.12, sparks: ['#e2e8f0', '#cbd5e1'], debris: '#64748b', text: '#e2e8f0' },
+      g: ['#d6d9d6', '#bfc3c0', '#9ba09d'], top: ['#eceeeb', '#d6d9d6'], stroke: '#6b706d', stroke2: '#9ba09d',
+      hl: '#f4f5f2', facet: '#fbfaf6',
+      glow: '#9aa39c', glowOp: 0.08, sparks: ['#d9dcd7', '#c4c8c2'], debris: '#a8ada7', text: '#5f665f' },
     { id: 'goldOre', at: 50, key: 'forge.stage3',
-      g: ['#cdb26a', '#a08b45', '#7a6222'], top: ['#ead9a0', '#b08e3a'], stroke: '#6b5518', stroke2: '#9c7f2e',
-      hl: '#f0e2b0', facet: '#f7ecc4',
-      glow: '#d9a441', glowOp: 0.15, sparks: ['#eac76a', '#d4a83c'], debris: '#a08339', text: '#f0d98a' },
+      g: ['#d4bd80', '#b9a05c', '#978043'], top: ['#e8d7a6', '#d4bd80'], stroke: '#6f5b28', stroke2: '#9c8448',
+      hl: '#f0e3bb', facet: '#f7edcd',
+      glow: '#c09a4a', glowOp: 0.1, sparks: ['#dcc484', '#cbb066'], debris: '#b39a5f', text: '#7c6226' },
     { id: 'gold', at: 90, key: 'forge.stage4',
-      g: ['#fcd34d', '#dc9c2a', '#b45309'], top: ['#fef3c7', '#f59e0b'], stroke: '#92400e', stroke2: '#b45309',
-      hl: '#fffbeb', facet: '#fffbeb',
-      glow: '#fbbf24', glowOp: 0.18, sparks: ['#fde047', '#facc15'], debris: '#b45309', text: '#fde047' },
+      g: ['#e2c069', '#cfa847', '#b08a31'], top: ['#efdca0', '#e2c069'], stroke: '#7a5d20', stroke2: '#ab8a3e',
+      hl: '#f6ecc9', facet: '#fbf4de',
+      glow: '#d0ab55', glowOp: 0.12, sparks: ['#e6cf88', '#d8bb63'], debris: '#be9a4d', text: '#7a5d20' },
     { id: 'diamond', at: 150, key: 'forge.stage5',
-      g: ['#e8f9ff', '#7dd3fc', '#0284c7'], top: ['#ffffff', '#a5f3fc'], stroke: '#0369a1', stroke2: '#38bdf8',
-      hl: '#ffffff', facet: '#e0f7ff',
-      glow: '#22d3ee', glowOp: 0.2, sparks: ['#a5f3fc', '#67e8f9'], debris: '#7dd3fc', text: '#a5f3fc' },
+      g: ['#a6c8d2', '#7fb0c9', '#5f8ea3'], top: ['#cfe2e6', '#a6c8d2'], stroke: '#4f7484', stroke2: '#7fa2b0',
+      hl: '#e8f2f3', facet: '#f6fbfa',
+      glow: '#7d9aa3', glowOp: 0.1, sparks: ['#b6d0d6', '#cfe0e3'], debris: '#9db9c2', text: '#4f6f7c' },
   ];
   const CARVE_MAX = 150; // 材质封顶：敲 150 下 = 钻石
 
@@ -93,14 +93,9 @@
   // 一块棱角分明的石料（给「材质演化」用）
   function previewRock(matIdx, px) {
     const m = MATERIALS[matIdx] || MATERIALS[0];
-    const c1 = m.g[0], c2 = m.g[1] || m.g[0], c3 = m.g[2] || m.g[1] || m.g[0];
-    const light = m.top[0], dark = '#0b1220';
-    const gid = 'pvrock' + matIdx;
+    const light = m.top[0], dark = m.g[2] || m.g[1] || m.g[0];
     let s = '<svg class="pv" viewBox="278 242 106 64" width="' + px + '" height="' + Math.round(px * 64 / 106) + '" xmlns="http://www.w3.org/2000/svg">';
-    s += '<defs><linearGradient id="' + gid + '" x1="0" y1="0" x2="0" y2="1">'
-      + '<stop offset="0" stop-color="' + c1 + '"/><stop offset="0.5" stop-color="' + c2 + '"/>'
-      + '<stop offset="1" stop-color="' + c3 + '"/></linearGradient></defs>';
-    s += '<path d="' + ROCK_OUTLINE + '" fill="url(#' + gid + ')" stroke="' + m.stroke + '" stroke-width="2"/>';
+    s += '<path d="' + ROCK_OUTLINE + '" fill="' + (m.g[1] || m.g[0]) + '" stroke="' + m.stroke + '" stroke-width="2"/>';
     ROCK_LIGHT.forEach((d, i) => { s += '<path d="' + d + '" fill="' + light + '" opacity="' + (i ? 0.2 : 0.35) + '"/>'; });
     ROCK_DARK.forEach((d, i) => { s += '<path d="' + d + '" fill="' + dark + '" opacity="' + [0.18, 0.12, 0.06][i] + '"/>'; });
     s += '<path d="' + ROCK_RIDGE + '" fill="none" stroke="' + m.stroke + '" stroke-width="1.2" opacity="0.4"/>';
@@ -108,7 +103,7 @@
   }
 
   // 六面六色（上色的样子）
-  const CUBE6 = ['#ef4444', '#f59e0b', '#22c55e', '#38bdf8', '#a78bfa', '#f472b6'];
+  const CUBE6 = ['#a94b3d', '#c08a3e', '#6f8a5e', '#6f8a9a', '#8a7a8e', '#b07a70'];
   const CUBE_TOP = 'M50,12 L80,29 L50,46 L20,29 Z';
   const CUBE_LEFT = 'M20,29 L50,46 L50,82 L20,65 Z';
   const CUBE_RIGHT = 'M50,46 L80,29 L80,65 L50,82 Z';
@@ -173,42 +168,14 @@
     return `
 <svg viewBox="0 0 ${VIEW_W} ${VIEW_H}" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <linearGradient id="wallGrad" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#1a2440"/><stop offset="1" stop-color="#101a2e"/>
-    </linearGradient>
-    <linearGradient id="floorGrad" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#0e1626"/><stop offset="1" stop-color="#0a101d"/>
-    </linearGradient>
-    <linearGradient id="woodGrad" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#a16207"/><stop offset="1" stop-color="#7c4a1e"/>
-    </linearGradient>
-    <radialGradient id="warmGlow" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0" stop-color="#f59e0b" stop-opacity="0.22"/><stop offset="1" stop-color="#f59e0b" stop-opacity="0"/>
-    </radialGradient>
-    <!-- 材质渐变：三段颜色由 JS 按当前材质填，形状与材质互不影响 -->
-    <linearGradient id="matGrad" x1="0" y1="0" x2="0" y2="1">
-      <stop id="mg0" offset="0" stop-color="#7b8ba1"/>
-      <stop id="mg1" offset="0.5" stop-color="#5c6b80"/>
-      <stop id="mg2" offset="1" stop-color="#475569"/>
-    </linearGradient>
-    <linearGradient id="matTop" x1="0" y1="0" x2="0" y2="1">
-      <stop id="mt0" offset="0" stop-color="#b6c3d3"/>
-      <stop id="mt1" offset="1" stop-color="#8b9bad"/>
-    </linearGradient>
+    <!-- 面的明暗由切面颜色决定，不用渐变 -->
     <style>
-      #shape .body { stroke: var(--mat-stroke, #334155); }
-      #shape .edge { stroke: var(--mat-stroke2, #64748b); }
-      #shape .hl { stroke: var(--mat-hl, #94a3b8); }
-      #shape .facet { stroke: var(--mat-facet, #e0f7ff); }
-      #shape .ridge { stroke: var(--mat-stroke, #334155); }
+      #shape .body { fill: var(--mat-fill, #9a9284); stroke: var(--mat-stroke, #5f584d); }
+      #shape .edge { stroke: var(--mat-stroke2, #8d8577); }
+      #shape .hl { stroke: var(--mat-hl, #e3dccd); }
+      #shape .facet { stroke: var(--mat-facet, #efe9dc); }
+      #shape .ridge { stroke: var(--mat-stroke, #5f584d); }
     </style>
-    <linearGradient id="glossGrad" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#ffffff" stop-opacity="0"/>
-      <stop offset="0.4" stop-color="#ffffff" stop-opacity="0.35"/>
-      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0.8"/>
-      <stop offset="0.6" stop-color="#ffffff" stop-opacity="0.15"/>
-      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
-    </linearGradient>
     <!-- 物体轮廓遮罩：把上传图片抠出来的剪影当蒙版用 -->
     <mask id="objMask" maskUnits="userSpaceOnUse" x="236" y="196" width="196" height="150">
       <image id="objMaskImg" href="" x="268" y="232" width="124" height="78" preserveAspectRatio="xMidYMid meet"/>
@@ -221,108 +188,89 @@
   </defs>
 
   <!-- 墙壁 -->
-  <rect x="0" y="0" width="${VIEW_W}" height="262" fill="url(#wallGrad)"/>
-  <g stroke="#26324d" stroke-width="1.5" opacity="0.55">
-    <line x1="0" y1="52" x2="${VIEW_W}" y2="52"/>
-    <line x1="0" y1="92" x2="${VIEW_W}" y2="92"/>
-    <line x1="0" y1="132" x2="${VIEW_W}" y2="132"/>
-    <line x1="0" y1="172" x2="${VIEW_W}" y2="172"/>
-    <line x1="0" y1="212" x2="${VIEW_W}" y2="212"/>
-    <line x1="0" y1="252" x2="${VIEW_W}" y2="252"/>
-    <line x1="70" y1="0" x2="70" y2="52"/><line x1="230" y1="0" x2="230" y2="52"/><line x1="390" y1="0" x2="390" y2="52"/><line x1="550" y1="0" x2="550" y2="52"/>
-    <line x1="150" y1="52" x2="150" y2="92"/><line x1="310" y1="52" x2="310" y2="92"/><line x1="470" y1="52" x2="470" y2="92"/>
-    <line x1="70" y1="92" x2="70" y2="132"/><line x1="230" y1="92" x2="230" y2="132"/><line x1="390" y1="92" x2="390" y2="132"/><line x1="550" y1="92" x2="550" y2="132"/>
-    <line x1="150" y1="132" x2="150" y2="172"/><line x1="310" y1="132" x2="310" y2="172"/><line x1="470" y1="132" x2="470" y2="172"/>
-    <line x1="70" y1="172" x2="70" y2="212"/><line x1="230" y1="172" x2="230" y2="212"/><line x1="390" y1="172" x2="390" y2="212"/><line x1="550" y1="172" x2="550" y2="212"/>
-  </g>
+  <rect x="0" y="0" width="${VIEW_W}" height="262" fill="#efe7d9"/>
+  <rect x="0" y="238" width="${VIEW_W}" height="24" fill="#e7dccb"/>
+  <line x1="0" y1="238" x2="${VIEW_W}" y2="238" stroke="#d5c7b1" stroke-width="2"/>
 
   <!-- 地面 -->
-  <rect x="0" y="262" width="${VIEW_W}" height="${VIEW_H - 262}" fill="url(#floorGrad)"/>
-  <g stroke="#18233a" stroke-width="1.5" opacity="0.6">
-    <line x1="0" y1="312" x2="${VIEW_W}" y2="312"/>
-    <line x1="0" y1="362" x2="${VIEW_W}" y2="362"/>
-    <line x1="0" y1="412" x2="${VIEW_W}" y2="412"/>
-    <line x1="90" y1="262" x2="60" y2="312"/><line x1="290" y1="262" x2="270" y2="312"/>
-    <line x1="500" y1="262" x2="520" y2="312"/><line x1="170" y1="312" x2="140" y2="362"/>
-    <line x1="370" y1="312" x2="400" y2="362"/><line x1="560" y1="362" x2="590" y2="412"/>
-  </g>
+  <rect x="0" y="262" width="${VIEW_W}" height="${VIEW_H - 262}" fill="#e3d7c3"/>
+  <line x1="0" y1="262" x2="${VIEW_W}" y2="262" stroke="#d5c7b1" stroke-width="2"/>
 
   <!-- 石匠（坐在桌后） -->
   <g class="mason-body">
     <!-- 躯干 -->
-    <path d="M286,150 C286,120 354,120 354,150 L354,262 C354,280 286,280 286,262 Z" fill="#92400e"/>
-    <path d="M286,150 C286,120 354,120 354,150 L354,170 L286,170 Z" fill="#a16207" opacity="0.5"/>
-    <rect x="286" y="240" width="68" height="9" rx="3" fill="#f59e0b"/>
+    <path d="M286,150 C286,120 354,120 354,150 L354,262 C354,280 286,280 286,262 Z" fill="#8f5a3c"/>
+    <path d="M286,150 C286,120 354,120 354,150 L354,170 L286,170 Z" fill="#a9724c" opacity="0.5"/>
+    <rect x="286" y="240" width="68" height="9" rx="3" fill="#b98a4a"/>
     <!-- 头 -->
     <circle cx="320" cy="116" r="24" fill="#eab98a"/>
     <g class="eyes">
-      <circle cx="310" cy="114" r="3.2" fill="#1e293b"/>
-      <circle cx="330" cy="114" r="3.2" fill="#1e293b"/>
+      <circle cx="310" cy="114" r="3.2" fill="#3a342b"/>
+      <circle cx="330" cy="114" r="3.2" fill="#3a342b"/>
     </g>
-    <path d="M307,127 Q320,133 333,127" stroke="#64748b" stroke-width="3" fill="none" stroke-linecap="round"/>
-    <path d="M318,133 L320,140 L322,133 Z" fill="#94a3b8"/>
+    <path d="M307,127 Q320,133 333,127" stroke="#8a6a55" stroke-width="3" fill="none" stroke-linecap="round"/>
+    <path d="M318,133 L320,140 L322,133 Z" fill="#c9a58c"/>
     <!-- 斗笠 -->
-    <ellipse cx="320" cy="88" rx="37" ry="8" fill="#eab308"/>
-    <path d="M287,88 L320,50 L353,88 Z" fill="#d97706"/>
-    <rect x="299" y="78" width="42" height="7" rx="3" fill="#a16207"/>
+    <ellipse cx="320" cy="88" rx="37" ry="8" fill="#c9a860"/>
+    <path d="M287,88 L320,50 L353,88 Z" fill="#b08a4a"/>
+    <rect x="299" y="78" width="42" height="7" rx="3" fill="#8f5a3c"/>
     <!-- 左手（搭在桌上） -->
-    <path d="M292,168 Q252,212 240,286" stroke="#92400e" stroke-width="16" fill="none" stroke-linecap="round"/>
+    <path d="M292,168 Q252,212 240,286" stroke="#8f5a3c" stroke-width="16" fill="none" stroke-linecap="round"/>
     <circle cx="240" cy="288" r="9" fill="#eab98a"/>
     <!-- 右手 + 锤子（抬起待击） -->
     <g id="armR">
-      <path d="M348,166 Q390,158 420,182" stroke="#92400e" stroke-width="15" fill="none" stroke-linecap="round"/>
-      <path d="M420,182 L436,202" stroke="#92400e" stroke-width="13" fill="none" stroke-linecap="round"/>
+      <path d="M348,166 Q390,158 420,182" stroke="#8f5a3c" stroke-width="15" fill="none" stroke-linecap="round"/>
+      <path d="M420,182 L436,202" stroke="#8f5a3c" stroke-width="13" fill="none" stroke-linecap="round"/>
       <circle cx="420" cy="182" r="8.5" fill="#eab98a"/>
-      <line x1="420" y1="182" x2="440" y2="160" stroke="#a16207" stroke-width="6" stroke-linecap="round"/>
-      <rect id="hammerHead" x="426" y="153" width="30" height="15" rx="4" fill="#94a3b8" stroke="#64748b" stroke-width="1.5" transform="rotate(48 441 160)"/>
+      <line x1="420" y1="182" x2="440" y2="160" stroke="#8a5f3c" stroke-width="6" stroke-linecap="round"/>
+      <rect id="hammerHead" x="426" y="153" width="30" height="15" rx="4" fill="#b9b6ad" stroke="#7c786e" stroke-width="1.5" transform="rotate(48 441 160)"/>
       <g id="chisel" class="hidden">
-        <line x1="419" y1="183" x2="443" y2="168" stroke="#78350f" stroke-width="5" stroke-linecap="round"/>
-        <path d="M441,165 L451,158 L456,164 L446,171 Z" fill="#cbd5e1" stroke="#64748b" stroke-width="1.2"/>
+        <line x1="419" y1="183" x2="443" y2="168" stroke="#6f4a2f" stroke-width="5" stroke-linecap="round"/>
+        <path d="M441,165 L451,158 L456,164 L446,171 Z" fill="#d8d5cc" stroke="#7c786e" stroke-width="1.2"/>
       </g>
     </g>
   </g>
   <!-- 桌子 -->
-  <path d="M120,300 L520,300 L560,342 L80,342 Z" fill="url(#woodGrad)" stroke="#5b3412" stroke-width="2"/>
-  <rect x="130" y="342" width="380" height="13" fill="#8a5522"/>
-  <rect x="150" y="355" width="15" height="50" fill="#5b3412"/>
-  <rect x="475" y="355" width="15" height="50" fill="#5b3412"/>
-  <ellipse cx="320" cy="398" rx="190" ry="16" fill="#000" opacity="0.3"/>
+  <path d="M120,300 L520,300 L560,342 L80,342 Z" fill="#a97c52" stroke="#6f4a2f" stroke-width="2"/>
+  <rect x="130" y="342" width="380" height="13" fill="#8a5f3c"/>
+  <rect x="150" y="355" width="15" height="50" fill="#6f4a2f"/>
+  <rect x="475" y="355" width="15" height="50" fill="#6f4a2f"/>
+  <ellipse cx="320" cy="398" rx="190" ry="16" fill="#8b7a61" opacity="0.18"/>
 
   <!-- 桌上做好的作品：自由摆放（可拖动） -->
   <g id="works"></g>
   <!-- 手上这块料 -->
-  <ellipse id="itemGlow" cx="330" cy="302" rx="58" ry="10" fill="#f59e0b" opacity="0.14"/>
   <g id="item" class="stone-hit" data-material="stone">
     <!-- #piece 是「这块料整体」：雕刻时用蒙版把块体一点点凿掉，只留下物体的轮廓 -->
     <g id="piece">
       <!-- 这块料：棱角分明的石料，长什么样固定，颜色由材质（打卡天数）决定 -->
       <g id="shape">
         <g id="shape-stone">
-          <path class="body" d="M284,300 L286,278 L296,262 L312,252 L338,250 L362,258 L376,276 L377,300 Z" fill="url(#matGrad)" stroke-width="2"/>
-          <g fill="url(#matTop)">
-            <path d="M286,278 L296,262 L312,252 L322,272 L306,282 Z" opacity="0.35"/>
-            <path d="M312,252 L338,250 L362,258 L348,278 L322,272 Z" opacity="0.2"/>
+          <path class="body" d="M284,300 L286,278 L296,262 L312,252 L338,250 L362,258 L376,276 L377,300 Z" fill="var(--mat-fill)" stroke-width="2"/>
+          <g fill="var(--mat-top)">
+            <path d="M286,278 L296,262 L312,252 L322,272 L306,282 Z" opacity="0.5"/>
+            <path d="M312,252 L338,250 L362,258 L348,278 L322,272 Z" opacity="0.32"/>
           </g>
-          <g fill="#0b1220">
-            <path d="M362,258 L376,276 L377,300 L352,296 L348,278 Z" opacity="0.18"/>
-            <path d="M286,278 L306,282 L318,296 L284,300 Z" opacity="0.12"/>
-            <path d="M306,282 L322,272 L348,278 L352,296 L318,296 Z" opacity="0.06"/>
+          <g fill="var(--mat-dark)">
+            <path d="M362,258 L376,276 L377,300 L352,296 L348,278 Z" opacity="0.3"/>
+            <path d="M286,278 L306,282 L318,296 L284,300 Z" opacity="0.18"/>
+            <path d="M306,282 L322,272 L348,278 L352,296 L318,296 Z" opacity="0.1"/>
           </g>
           <path class="ridge" d="M286,278 L306,282 L318,296M312,252 L322,272 L348,278M338,250 L322,272M362,258 L348,278" stroke-width="1.2" opacity="0.4" fill="none"/>
         </g>
       </g>
       <!-- 凿痕：雕刻过程中越来越明显，块体被凿掉后自然消失 -->
-      <g id="chisels" stroke="#0b1220" stroke-width="1.8" fill="none" stroke-linecap="round" opacity="0">
+      <g id="chisels" stroke="var(--mat-dark)" stroke-width="1.8" fill="none" stroke-linecap="round" opacity="0">
         <path d="M296,276 L312,286"/>
         <path d="M330,258 L338,272"/>
         <path d="M352,278 L362,286"/>
         <path d="M314,296 L332,300"/>
       </g>
       <!-- 雕出来的物体：先按材料本色出形状（金料雕出金船），再自己上色，最后抛光 -->
-      <rect id="carveFill" class="hidden" x="268" y="232" width="124" height="78" fill="url(#matGrad)" mask="url(#objMask)"/>
+      <rect id="carveFill" class="hidden" x="268" y="232" width="124" height="78" fill="var(--mat-fill)" mask="url(#objMask)"/>
       <image id="carvePaint" class="hidden" href="" x="268" y="232" width="124" height="78" preserveAspectRatio="xMidYMid meet" mask="url(#objMask)"/>
       <g id="carveGloss" class="hidden" mask="url(#objMask)">
-        <path d="M268,312 L352,226 L382,226 L298,312 Z" fill="url(#glossGrad)" style="mix-blend-mode:screen"/>
+        <path d="M268,312 L352,226 L382,226 L298,312 Z" fill="#ffffff" opacity="0.18"/>
         <g stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" style="mix-blend-mode:screen">
           <path class="gem-spark" d="M364,242 L364,230 M358,236 L370,236"/>
           <path class="gem-spark d2" d="M290,272 L290,262 M285,267 L295,267"/>
@@ -331,7 +279,7 @@
       </g>
     </g>
   </g>
-  <ellipse cx="330" cy="301" rx="66" ry="9" fill="#000" opacity="0.25"/>
+  <ellipse cx="330" cy="301" rx="66" ry="9" fill="#8b7a61" opacity="0.2"/>
 </svg>`;
   }
 
@@ -380,7 +328,7 @@
       this.armEl = svg.querySelector('#armR');
       this.itemEl = svg.querySelector('#item');
       this.pieceEl = svg.querySelector('#piece');
-      this.glowEl = svg.querySelector('#itemGlow');
+      this.glowEl = null;
       this.chiselsEl = svg.querySelector('#chisels');
       this.carveFill = svg.querySelector('#carveFill');
       this.carvePaint = svg.querySelector('#carvePaint');
@@ -392,8 +340,6 @@
       this.hammerEl = svg.querySelector('#hammerHead');
       this.chiselEl = svg.querySelector('#chisel');
       this.shapeEl = svg.querySelector('#shape');
-      this.gradStops = { mg0: svg.querySelector('#mg0'), mg1: svg.querySelector('#mg1'), mg2: svg.querySelector('#mg2'),
-        mt0: svg.querySelector('#mt0'), mt1: svg.querySelector('#mt1') };
 
       // 手臂动画需要以肩部为原点（viewBox 坐标系）
       this.armEl.style.transformBox = 'view-box';
@@ -452,21 +398,14 @@
 
     /* 换材质：改三段渐变 + 描边色变量 + 落料光晕颜色（形状一层不动） */
     applyMaterial(mat) {
-      const s = this.gradStops;
-      if (s) {
-        s.mg0.setAttribute('stop-color', mat.g[0]);
-        s.mg1.setAttribute('stop-color', mat.g[1]);
-        s.mg2.setAttribute('stop-color', mat.g[2] || mat.g[1]);
-        s.mt0.setAttribute('stop-color', mat.top[0]);
-        s.mt1.setAttribute('stop-color', mat.top[1]);
-      }
       const st = this.svg.style;
+      st.setProperty('--mat-fill', mat.g[1] || mat.g[0]);
+      st.setProperty('--mat-top', mat.top[0]);
+      st.setProperty('--mat-dark', mat.g[2] || mat.g[1] || mat.g[0]);
       st.setProperty('--mat-stroke', mat.stroke);
       st.setProperty('--mat-stroke2', mat.stroke2 || mat.stroke);
       st.setProperty('--mat-hl', mat.hl || mat.top[0]);
       st.setProperty('--mat-facet', mat.facet || mat.top[0]);
-      this.glowEl.setAttribute('fill', mat.glow);
-      this.glowEl.setAttribute('opacity', String(mat.glowOp));
     },
 
     /* 自己涂的色（PNG 纹理，和物体同一个框；只在变化时改 href） */
@@ -497,8 +436,8 @@
         sh.setAttribute('cy', box.y / 2 - 2);
         sh.setAttribute('rx', box.x * 0.5);
         sh.setAttribute('ry', 5 * k);
-        sh.setAttribute('fill', '#000');
-        sh.setAttribute('opacity', '0.22');
+        sh.setAttribute('fill', '#8b7a61');
+        sh.setAttribute('opacity', '0.18');
         g.appendChild(sh);
         [w.obj, w.paint].forEach((href, i) => {
           if (!href) return;

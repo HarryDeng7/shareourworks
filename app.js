@@ -184,7 +184,7 @@
 
   function confetti() {
     const layer = $('confettiLayer');
-    const colors = ['#f59e0b', '#22c55e', '#38bdf8', '#f472b6', '#a78bfa', '#fbbf24'];
+    const colors = ['#a2542f', '#5b7651', '#b08a5a', '#7b8f7a', '#c2a760', '#b07a6a'];
     for (let i = 0; i < 42; i++) {
       const c = document.createElement('div');
       c.className = 'confetti';
@@ -916,9 +916,7 @@
     const panel = $('checkinPanel');
     let html = '';
     if (cs.done) {
-      html = `
-        <div class="checked-banner">${escapeHtml(T('checkin.done'))}</div>
-        <div style="margin-top:12px"><button id="btnGoForge" class="btn btn-accent btn-checkin">${escapeHtml(T('checkin.goForge'))}</button></div>`;
+      html = `<div class="checked-banner">${escapeHtml(T('checkin.done'))}</div>`;
     } else {
       let status = '';
       let enabled = false;
@@ -935,8 +933,6 @@
     panel.innerHTML = html;
     const btn = $('btnCheckin');
     if (btn) btn.onclick = doCheckin;
-    const go = $('btnGoForge');
-    if (go) go.onclick = () => switchView('forge');
   }
 
   function doCheckin() {
@@ -1146,7 +1142,6 @@
       ? T('mat.note', { name: T(list[ci].key), n: hits, next: T(next.key), left: next.at - hits })
       : T('mat.noteDone', { name: T(list[ci].key), n: hits });
     openModal(T('mat.title'), `
-      <p class="muted">${escapeHtml(T('mat.intro'))}</p>
       <div class="mat-grid">${cards}</div>
       <p class="muted" style="margin-top:10px">${escapeHtml(note)}</p>
       ${devBox('strikes', hits, 150, [0, 8, 25, 50, 90, 150])}`);
@@ -1176,9 +1171,7 @@
         <div class="stg-name">${escapeHtml(it.name)}</div>
         <div class="stg-n">${escapeHtml(T('stg.times', { n: it.n }))}</div></div>`).join('');
     openModal(T('stg.title'), `
-      <p class="muted">${escapeHtml(T('stg.intro'))}</p>
       <div class="stg-strip">${cells}</div>
-      <p class="muted" style="margin-top:10px;font-size:12px">${escapeHtml(T('stg.note'))}</p>
       ${c ? devBox('carve', n, Forge.CARVE_TOTAL, [0, 50, 100, 150]) : (isFree() ? '<p class="muted">' + escapeHtml(T('dev.needObj')) + '</p>' : '')}`);
     bindDevBox('carve', (v) => {
       if (!state.carve) return;
@@ -1471,7 +1464,6 @@
     const mi = Forge.MATERIALS.findIndex((m) => m.id === w.mat);
     const matName = mi >= 0 ? T(Forge.MATERIALS[mi].key) : '';
     openModal(T('work.title'), `
-      <p class="muted">${escapeHtml(T('work.hint'))}</p>
       <div class="acct-row"><span class="muted">${escapeHtml(T('carve.objName', { name: w.name || '' }))}</span></div>
       <div class="acct-row"><span class="muted">${escapeHtml(matName)}</span></div>
       <div class="modal-row" style="flex-direction:column;gap:8px">
@@ -1522,7 +1514,6 @@
     cropSel = null;
     cropDrag = null;
     openModal(T('carve.pickTitle'), `
-      <p class="muted">${escapeHtml(T('carve.pickIntro'))}</p>
       <div class="crop-wrap">
         <canvas id="cropCanvas" class="crop-canvas"></canvas>
         <div id="cropHintBox" class="crop-hint"></div>
@@ -1917,7 +1908,6 @@
         + '  ' + (e.ok ? '✓ ' + T('sync.ok') : '✗ ' + T('sync.fail')) + (e.w ? ' · ' + escapeHtml(e.w) : '') + '</div>';
     }).join('') || '<div class="muted" style="text-align:center;padding:8px 0">' + escapeHtml(T('syncModal.empty')) + '</div>';
     openModal(T('syncModal.title'), `
-      <p class="muted">${escapeHtml(T('syncModal.intro'))}</p>
       <div class="sync-counts">
         <div class="sync-num ok"><b>${st.ok}</b><span>${escapeHtml(T('syncModal.ok'))}</span></div>
         <div class="sync-num bad"><b>${st.fail}</b><span>${escapeHtml(T('syncModal.fail'))}</span></div>
@@ -1975,7 +1965,6 @@
       <div id="acctErr" class="acct-err"></div>
       <div class="modal-row" style="flex-direction:row;justify-content:flex-end"><button id="btnAcctChg" class="btn btn-accent btn-sm">${escapeHtml(T('acct.saveBtn'))}</button></div>
       <div class="acct-sep" style="margin-top:14px"></div>
-      <p class="muted" style="font-size:12px;margin-bottom:8px">${escapeHtml(T('acct.backupHint'))}</p>
       <div class="acct-row"><span class="muted">${escapeHtml(T('acct.lastBackup'))}</span><span id="acctBackupTime" class="muted"></span></div>
       <div class="modal-row" style="flex-direction:row;justify-content:flex-end"><button id="btnAcctBackup" class="btn btn-sm">${escapeHtml(T('acct.backupBtn'))}</button></div>`);
     $('btnAcctChg').onclick = saveNewPwd;
@@ -2066,7 +2055,6 @@
   function openAcctBackupModal() {
     const code = buildBackupCode();
     openModal(T('bk.title'), `
-      <p class="muted">${escapeHtml(T('bk.intro'))}</p>
       <textarea id="bkCode" class="modal-textarea" readonly>${escapeHtml(code)}</textarea>
       <div class="modal-row"><button id="btnBkCopy" class="btn btn-accent btn-block">${escapeHtml(T('bk.copy'))}</button></div>
       <div class="modal-row"><button id="btnBkFile" class="btn btn-block">${escapeHtml(T('bk.download'))}</button></div>`);
@@ -2097,7 +2085,6 @@
   // 恢复：登录页使用，粘贴备份码或选择备份文件后恢复本机同名账号并自动登录
   function openAcctRestoreModal() {
     openModal(T('rs.title'), `
-      <p class="muted">${escapeHtml(T('rs.intro'))}</p>
       <textarea id="rsCode" class="modal-textarea" placeholder="${escapeHtml(T('rs.codePh'))}"></textarea>
       <div class="modal-row"><button id="btnRsGo" class="btn btn-accent btn-block">${escapeHtml(T('rs.go'))}</button></div>
       <div id="rsStatus" class="modal-status"></div>`);
@@ -2142,17 +2129,13 @@
     if (!b) {
       card.innerHTML = `
         <div class="pair-row">
-          <div>
-            <strong>${escapeHtml(T('pair.none'))}</strong>
-            <div class="muted">${escapeHtml(T('pair.noneHint'))}</div>
-          </div>
+          <strong>${escapeHtml(T('pair.none'))}</strong>
           <div class="pair-actions">
             <button id="btnCreatePair" class="btn btn-accent">${escapeHtml(T('pair.create'))}</button>
             <button id="btnJoinPair" class="btn">${escapeHtml(T('pair.join'))}</button>
           </div>
         </div>
-        <div class="pair-row" style="margin-top:12px;border-top:1px dashed var(--border);padding-top:12px">
-          <div class="muted">${escapeHtml(T('pair.offlineHint'))}</div>
+        <div class="pair-row" style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px;justify-content:flex-end">
           <div class="pair-actions">
             <button id="btnExport" class="btn btn-sm">${escapeHtml(T('pair.export'))}</button>
             <button id="btnImport" class="btn btn-sm">${escapeHtml(T('pair.import'))}</button>
@@ -2190,9 +2173,7 @@
     saveState();
     renderAll();
     openModal(T('pair.createTitle'), `
-      <p class="muted">${escapeHtml(T('pair.createIntro'))}</p>
       <div class="pair-big-code">${code}</div>
-      <div class="pair-hint">${escapeHtml(T('pair.createHint'))}</div>
       <div class="modal-row">
         <button id="btnCopyPairCode" class="btn btn-accent">${escapeHtml(T('pair.copyCode'))}</button>
         <button id="btnCreateDone" class="btn">${escapeHtml(T('pair.done'))}</button>
@@ -2213,7 +2194,6 @@
 
   function openJoinModal() {
     openModal(T('pair.joinTitle'), `
-      <p class="muted">${escapeHtml(T('pair.joinIntro'))}</p>
       <input id="joinCodeInput" class="auth-input" placeholder="${escapeHtml(T('pair.joinPh'))}" maxlength="6" style="text-transform:uppercase">
       <div class="modal-row"><button id="btnJoinGo" class="btn btn-accent btn-block">${escapeHtml(T('pair.joinGo'))}</button></div>
       <div id="joinStatus" class="modal-status"></div>`);
@@ -2233,7 +2213,6 @@
   function openExportModal() {
     const code = 'SM1.' + b64u(JSON.stringify(buildSnap()));
     openModal(T('pair.exportTitle'), `
-      <p class="muted">${escapeHtml(T('pair.exportIntro'))}</p>
       <textarea id="exportCode" class="modal-textarea" readonly>${escapeHtml(code)}</textarea>
       <div class="modal-row"><button id="btnCopyCode" class="btn btn-accent btn-block">${escapeHtml(T('pair.copySync'))}</button></div>`);
     $('btnCopyCode').onclick = () => {
@@ -2247,7 +2226,6 @@
 
   function openImportModal() {
     openModal(T('pair.importTitle'), `
-      <p class="muted">${escapeHtml(T('pair.importIntro'))}</p>
       <textarea id="importCode" class="modal-textarea" placeholder="${escapeHtml(T('pair.importPh'))}"></textarea>
       <div class="modal-row"><button id="btnImportGo" class="btn btn-accent btn-block">${escapeHtml(T('pair.importGo'))}</button></div>
       <div id="importStatus" class="modal-status"></div>`);
