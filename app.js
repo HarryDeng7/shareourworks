@@ -988,7 +988,7 @@
   function renderForgeLegend() {
     const el = $('carveLegend');
     if (!el) return;
-    const mats = Forge.MATERIALS.map((m) => T(m.key) + '(' + m.at + ')').join(' → ');
+    const mats = Forge.MATERIALS.map((m) => T(m.key) + '(' + m.at + ')').join(T('common.sep'));
     const step = Forge.CARVE_STEP;
     const c = state.carve;
     const lines = [T('forge.legendMat', { ladder: mats })];
@@ -2324,7 +2324,7 @@
       awardCarve();
     } catch (e) {
       if (window.console) console.error(e);
-      toast('⚠️ ' + T('toast.renderFail', { e: (e && e.message) ? e.message : String(e) }), 8000);
+      toast(T('toast.renderFail', { e: (e && e.message) ? e.message : String(e) }), 8000);
     }
 
     heartbeatTimer = setInterval(() => { if (connOpen) send({ t: 'ping' }); }, 15000);
