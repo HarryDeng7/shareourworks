@@ -1518,14 +1518,16 @@
         <canvas id="cropCanvas" class="crop-canvas"></canvas>
         <div id="cropHintBox" class="crop-hint"></div>
       </div>
-      <div class="modal-row"><button id="btnCropFile" class="btn btn-accent">${escapeHtml(T('carve.pickFile'))}</button></div>
+      <div class="modal-row"><label id="btnCropFile" class="btn btn-accent" for="carveImgFile" role="button" tabindex="0">${escapeHtml(T('carve.pickFile'))}</label></div>
       <div class="modal-row">
         <button id="btnCropUse" class="btn btn-accent" disabled>${escapeHtml(T('carve.pickUse'))}</button>
         <button id="btnCropWhole" class="btn" disabled>${escapeHtml(T('carve.pickWhole'))}</button>
         <button id="btnCropCancel" class="btn btn-ghost">${escapeHtml(T('carve.cancel'))}</button>
       </div>
       <div id="cropStatus" class="modal-status"></div>`);
-    $('btnCropFile').onclick = () => $('carveImgFile').click();
+    $('btnCropFile').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('carveImgFile').click(); }
+    });
     $('btnCropUse').onclick = () => useCrop(false);
     $('btnCropWhole').onclick = () => useCrop(true);
     $('btnCropCancel').onclick = closeModal;

@@ -58,6 +58,7 @@ h1, h2, h3 {
 }
 .btn:hover { background: #e6dccb; }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+label.btn { display: flex; align-items: center; justify-content: center; }
 .btn-accent { background: var(--accent); border-color: var(--accent); color: #fffaf3; font-weight: 600; }
 .btn-accent:hover { background: var(--accent-dark); }
 .btn-green { background: var(--green); border-color: var(--green); color: #f8faf4; font-weight: 600; }
