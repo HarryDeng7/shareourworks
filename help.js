@@ -1,0 +1,204 @@
+/* ===== 小石客服：帮助窗口 ===== */
+(function () {
+  'use strict';
+
+  const btnApp = document.getElementById('helpOpen');
+  const btnAuth = document.getElementById('helpOpenAuth');
+  if (!btnApp && !btnAuth) return;
+
+  const endpoint = window.SOW_CHAT_API || '/api/chat';
+  const history = [];
+  let busy = false;
+  let panel = null;
+  let log = null;
+  let input = null;
+  let send = null;
+
+  function isEn() {
+    if (window.I18N && window.I18N.lang) return window.I18N.lang === 'en';
+    return /^en/i.test(document.documentElement.lang || navigator.language || '');
+  }
+
+  function text() {
+    return isEn() ? {
+      name: 'Stone Support',
+      title: 'Stone Support',
+      welcome: 'Hi, I’m Stone Support. Ask me how to add tasks, check in, pair with a buddy, carve, upload an image, or find your history.',
+      placeholder: 'Ask a question about using this site…',
+      send: 'Send',
+      close: 'Close',
+      note: 'Only your questions are sent. Account data, tasks, and images are not.',
+      pending: 'Thinking…',
+    } : {
+      name: '小石客服',
+      title: '小石客服',
+      welcome: '你好，我是小石客服。可以问我怎么添加安排、打卡、和好友配对、雕刻、上传图片，或者查看历史记录。',
+      placeholder: '问一个关于使用的问题…',
+      send: '发送',
+      close: '关闭',
+      note: '只发送你的问题，不会发送账号、任务或图片。',
+      pending: '正在回复…',
+    };
+  }
+
+  const faq = [
+    { k: ['添加安排', '添加任务', '新建任务', 'add task', 'new task', 'add a task'],
+      zh: '在「我的安排」下面输入任务文字，点「添加」。可以顺便填完成时间，或选一个限时倒计时。',
+      en: 'Under My Plan, type the task and press Add. You can also set a finish time or a countdown.' },
+    { k: ['打卡', 'check in', 'checkin'],
+      zh: '双方都完成今天的全部安排后，「打卡」按钮才会亮。打卡会获得 1 次敲击机会。',
+      en: 'The Check in button unlocks when both you and your buddy finish all of today’s tasks. Checking in earns 1 strike.' },
+    { k: ['配对', '好友', 'buddy', 'pair'],
+      zh: '在好友卡片里点「创建配对码」发给对方，或点「输入配对码」加入。配对后每 5 秒同步一次进度。',
+      en: 'Create a pair code and send it to your buddy, or enter their code. Progress syncs about every 5 seconds.' },
+    { k: ['雕刻机会', 'carve', '选物体', '选择物体', 'object'],
+      zh: '完成自己今天的全部安排会获得雕刻机会。第一次先点「选择物体」，上传图片并框住要雕的东西。',
+      en: 'Finish all of your own tasks today to earn a carve. First choose an object: upload an image and frame the object.' },
+    { k: ['上色', '彩笔', '橡皮', 'paint', 'eraser'],
+      zh: '雕到第 50 次后可以开始上色。选一支笔在料上拖动，橡皮可以擦掉；是否涂色不影响进度。',
+      en: 'After 50 carves you can paint. Pick a pen and drag on the piece; the eraser removes paint. Painting does not affect progress.' },
+    { k: ['抛光', '完成', '杰作', 'polish', 'finish'],
+      zh: '第 100 次后只剩抛光，再雕 50 次完成。作品会摆到桌上，最多 10 件，可以拖动或删除。',
+      en: 'After carve 100 only polishing remains; 50 more carves finish it. The work moves to the table; up to 10, draggable and deletable.' },
+    { k: ['图片', '上传', '相册', '文件', 'upload', 'image', 'photo'],
+      zh: '点「选择图片」会打开系统相册/文件选择。如果没反应，试试用手机自带浏览器打开，不要在微信内置浏览器里操作。',
+      en: 'Choose image opens the system gallery/file picker. If nothing happens, try your phone’s browser instead of an in-app browser.' },
+    { k: ['保存', 'save', '失败'],
+      zh: '右上角会显示「保存中… / 已保存 / 保存失败」。失败时等自动重试，或换一张小一点的图片。',
+      en: 'The top-right shows Saving…, Saved, or Save failed. On failure, wait for the retry or use a smaller image.' },
+    { k: ['历史', '日历', '连续', 'history', 'calendar', 'streak'],
+      zh: '「历史记录」里可以看打卡日历、连续打卡天数和累计敲击次数。',
+      en: 'History shows your check-in calendar, current streak, and total hits.' },
+    { k: ['时间', '超时', '截止', '倒计时', 'deadline', 'expired', 'countdown'],
+      zh: '任务可以填完成时间或限时倒计时。到点还没完成会打叉，按未完成计算，需要删除后才能继续。',
+      en: 'Tasks can have a finish time or countdown. When time runs out they are marked expired and count as unfinished; delete them to continue.' },
+    { k: ['密码', '登录', '账号', 'password', 'login', 'account'],
+      zh: '账号用用户名和密码登录。目前没有自动找回密码或修改密码功能；请不要把密码发给任何人。',
+      en: 'Sign in with your username and password. There is no automatic password reset or change yet. Never share your password.' },
+    { k: ['窗口', '客服', 'help', 'support'],
+      zh: '左上角的「小石客服」可以随时打开这个帮助窗口。',
+      en: 'The Stone Support button at the top-left opens this help window at any time.' },
+  ];
+
+  function fallbackAnswer(question) {
+    const q = String(question || '').toLowerCase();
+    for (const item of faq) {
+      if (item.k.some((word) => q.includes(word.toLowerCase()))) {
+        return isEn() ? item.en : item.zh;
+      }
+    }
+    return isEn()
+      ? 'I only know the basics of this page. Ask me about adding tasks, checking in, pairing, carving, painting, uploading images, saving, or history.'
+      : '我暂时只了解这个页面的基本用法。你可以问：添加安排、打卡、配对、雕刻、上色、上传图片、保存或历史记录。';
+  }
+
+  function addMessage(role, content, pending) {
+    const el = document.createElement('div');
+    el.className = 'help-msg ' + role + (pending ? ' pending' : '');
+    el.textContent = content;
+    log.appendChild(el);
+    log.scrollTop = log.scrollHeight;
+    return el;
+  }
+
+  function syncText() {
+    const t = text();
+    [btnApp, btnAuth].forEach((b) => { if (b) b.textContent = t.name; });
+    if (!panel) return;
+    panel.querySelector('.help-title').textContent = t.title;
+    panel.querySelector('.help-close').textContent = t.close;
+    panel.querySelector('.help-note').textContent = t.note;
+    input.placeholder = t.placeholder;
+    send.textContent = t.send;
+    if (!log.children.length) addMessage('bot', t.welcome);
+  }
+
+  function buildPanel() {
+    panel = document.createElement('section');
+    panel.id = 'helpPanel';
+    panel.className = 'help-panel hidden';
+    panel.setAttribute('aria-label', text().title);
+    panel.innerHTML = [
+      '<div class="help-head"><span class="help-title"></span><button type="button" class="help-close"></button></div>',
+      '<div class="help-log" aria-live="polite"></div>',
+      '<div class="help-note"></div>',
+      '<form class="help-form"><input class="help-input" type="text" maxlength="500" autocomplete="off"><button class="help-send" type="submit"></button></form>',
+    ].join('');
+    document.body.appendChild(panel);
+    log = panel.querySelector('.help-log');
+    input = panel.querySelector('.help-input');
+    send = panel.querySelector('.help-send');
+    panel.querySelector('.help-close').onclick = close;
+    panel.querySelector('.help-form').onsubmit = (event) => {
+      event.preventDefault();
+      ask(input.value);
+    };
+  }
+
+  async function ask(raw) {
+    const question = String(raw || '').trim();
+    if (!question || busy) return;
+    input.value = '';
+    busy = true;
+    send.disabled = true;
+    addMessage('user', question);
+    history.push({ role: 'user', content: question });
+    const pending = addMessage('bot', text().pending, true);
+    try {
+      if (!endpoint) throw new Error('no_endpoint');
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: history.slice(-8), lang: isEn() ? 'en' : 'zh' }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.ok || !data.reply) throw new Error(data.error || 'bad_reply');
+      pending.classList.remove('pending');
+      pending.textContent = data.reply;
+      history.push({ role: 'assistant', content: data.reply });
+    } catch (error) {
+      pending.classList.remove('pending');
+      pending.textContent = fallbackAnswer(question);
+      history.push({ role: 'assistant', content: pending.textContent });
+    } finally {
+      if (history.length > 8) history.splice(0, history.length - 8);
+      busy = false;
+      send.disabled = false;
+      log.scrollTop = log.scrollHeight;
+      input.focus();
+    }
+  }
+
+  function open() {
+    if (!panel) buildPanel();
+    syncText();
+    panel.classList.remove('hidden');
+    [btnApp, btnAuth].forEach((b) => { if (b) b.setAttribute('aria-expanded', 'true'); });
+    setTimeout(() => input && input.focus(), 30);
+  }
+
+  function close() {
+    if (!panel) return;
+    panel.classList.add('hidden');
+    [btnApp, btnAuth].forEach((b) => { if (b) b.setAttribute('aria-expanded', 'false'); });
+  }
+
+  function toggle() {
+    if (panel && !panel.classList.contains('hidden')) close();
+    else open();
+  }
+
+  [btnApp, btnAuth].forEach((b) => {
+    if (!b) return;
+    b.setAttribute('aria-expanded', 'false');
+    b.addEventListener('click', toggle);
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') close();
+  });
+  new MutationObserver(syncText).observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['lang'],
+  });
+  syncText();
+})();
