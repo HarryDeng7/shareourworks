@@ -1,18 +1,29 @@
-/* ===== 小石客服：帮助窗口 ===== */
+﻿/* ===== 小石客服：帮助窗口与站长反馈 ===== */
 (function () {
   'use strict';
 
   const btnApp = document.getElementById('helpOpen');
   const btnAuth = document.getElementById('helpOpenAuth');
-  if (!btnApp && !btnAuth) return;
+  const btnAdmin = document.getElementById('adminFeedback');
+  if (!btnApp && !btnAuth && !btnAdmin) return;
 
-  const endpoint = window.SOW_CHAT_API || '/api/chat';
+  const chatEndpoint = window.SOW_CHAT_API || '/api/chat';
+  const feedbackEndpoint = window.SOW_FEEDBACK_API
+    || chatEndpoint.replace(/\/api\/chat\/?$/, '/api/feedback');
+  const THREAD_KEY = 'sowHelpThread';
+  const USED_KEY = 'sowHelpThreadUsed';
   const history = [];
   let busy = false;
   let panel = null;
   let log = null;
   let input = null;
   let send = null;
+  let adminMode = false;
+  let adminList = [];
+  let adminIndex = 0;
+  let replyTimer = null;
+  let lastReplyCount = 0;
+  let lastEscalatedQuestion = '';
 
   function isEn() {
     if (window.I18N && window.I18N.lang) return window.I18N.lang === 'en';
@@ -27,8 +38,20 @@
       placeholder: 'Ask a question about using this site…',
       send: 'Send',
       close: 'Close',
-      note: 'Only your questions are sent. Account data, tasks, and images are not.',
+      note: 'Only your questions are sent. Account data, tasks, and images are not. If I’m unsure, I’ll forward the question to the owner.',
       pending: 'Thinking…',
+      escalated: 'I’m not sure about that, so I’ve sent it to the owner. Replies will appear here.',
+      escalateFail: 'I’m not sure about that, and I could not reach the owner right now. Please try again later.',
+      admin: 'Feedback',
+      adminTitle: 'Owner Feedback',
+      adminReply: 'Reply and next',
+      adminNext: 'Next',
+      adminEmpty: 'No unanswered feedback.',
+      adminForbidden: 'Only the 222 account can view feedback.',
+      adminUnavailable: 'Feedback is unavailable right now. The database may not be connected.',
+      adminNeedText: 'Write a reply first.',
+      adminSent: 'Reply saved.',
+      adminCount: 'Item {n} / {total}',
     } : {
       name: '小石客服',
       title: '小石客服',
@@ -36,8 +59,20 @@
       placeholder: '问一个关于使用的问题…',
       send: '发送',
       close: '关闭',
-      note: '只发送你的问题，不会发送账号、任务或图片。',
+      note: '只发送你的问题，不会发送账号、任务或图片。如果我没把握，会把问题转给站长。',
       pending: '正在回复…',
+      escalated: '这个问题我没把握，已经转给站长。回复会显示在这里。',
+      escalateFail: '这个问题我没把握，暂时无法转交，请稍后再试。',
+      admin: '反馈',
+      adminTitle: '站长反馈',
+      adminReply: '回复并下一条',
+      adminNext: '下一条',
+      adminEmpty: '没有未回复的反馈。',
+      adminForbidden: '只有 222 账号可以查看反馈。',
+      adminUnavailable: '反馈暂时不可用，数据库可能还没连接。',
+      adminNeedText: '先写一句回复。',
+      adminSent: '回复已保存。',
+      adminCount: '第 {n} / {total} 条',
     };
   }
 
@@ -84,12 +119,38 @@
     const q = String(question || '').toLowerCase();
     for (const item of faq) {
       if (item.k.some((word) => q.includes(word.toLowerCase()))) {
-        return isEn() ? item.en : item.zh;
+        return { text: isEn() ? item.en : item.zh, escalate: false };
       }
     }
-    return isEn()
-      ? 'I only know the basics of this page. Ask me about adding tasks, checking in, pairing, carving, painting, uploading images, saving, or history.'
-      : '我暂时只了解这个页面的基本用法。你可以问：添加安排、打卡、配对、雕刻、上色、上传图片、保存或历史记录。';
+    return {
+      text: isEn()
+        ? 'I only know the basics of this page. Ask me about adding tasks, checking in, pairing, carving, painting, uploading images, saving, or history.'
+        : '我暂时只了解这个页面的基本用法。你可以问：添加安排、打卡、配对、雕刻、上色、上传图片、保存或历史记录。',
+      escalate: true,
+    };
+  }
+
+  function token() {
+    try {
+      let value = localStorage.getItem(THREAD_KEY);
+      if (!value) {
+        value = (window.crypto && crypto.randomUUID)
+          ? crypto.randomUUID()
+          : ('sow' + Date.now().toString(36) + Math.random().toString(36).slice(2, 12));
+        localStorage.setItem(THREAD_KEY, value);
+      }
+      return value;
+    } catch (e) {
+      return 'sow' + Date.now().toString(36) + Math.random().toString(36).slice(2, 12);
+    }
+  }
+
+  function threadUsed() {
+    try { return localStorage.getItem(USED_KEY) === '1'; } catch (e) { return false; }
+  }
+
+  function markThreadUsed() {
+    try { localStorage.setItem(USED_KEY, '1'); } catch (e) { }
   }
 
   function addMessage(role, content, pending) {
@@ -101,28 +162,78 @@
     return el;
   }
 
+  async function submitFeedback(question, transcript) {
+    if (lastEscalatedQuestion === question) return true;
+    try {
+      const response = await fetch(feedbackEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'submit',
+          question: question,
+          transcript: transcript.slice(-8),
+          token: token(),
+          lang: isEn() ? 'en' : 'zh',
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.ok) return false;
+      lastEscalatedQuestion = question;
+      lastReplyCount = 0;
+      markThreadUsed();
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  async function fetchReplies() {
+    if (!threadUsed() || adminMode) return;
+    try {
+      const response = await fetch(feedbackEndpoint + '?token=' + encodeURIComponent(token()));
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.ok || !Array.isArray(data.replies)) return;
+      if (data.replies.length <= lastReplyCount) return;
+      for (let i = lastReplyCount; i < data.replies.length; i++) {
+        const reply = data.replies[i];
+        if (reply && reply.text) {
+          addMessage('bot', (isEn() ? 'Owner: ' : '站长：') + reply.text);
+        }
+      }
+      lastReplyCount = data.replies.length;
+    } catch (e) { }
+  }
+
   function syncText() {
     const t = text();
-    [btnApp, btnAuth].forEach((b) => { if (b) b.textContent = t.name; });
+    [btnApp, btnAuth, btnAdmin].forEach((b) => { if (b) b.textContent = b === btnAdmin ? t.admin : t.name; });
     if (!panel) return;
-    panel.querySelector('.help-title').textContent = t.title;
+    panel.querySelector('.help-title').textContent = adminMode ? t.adminTitle : t.title;
     panel.querySelector('.help-close').textContent = t.close;
     panel.querySelector('.help-note').textContent = t.note;
     input.placeholder = t.placeholder;
     send.textContent = t.send;
-    if (!log.children.length) addMessage('bot', t.welcome);
+    panel.querySelector('.help-admin-send').textContent = t.adminReply;
+    panel.querySelector('.help-admin-next').textContent = t.adminNext;
+    if (!adminMode && !log.children.length) addMessage('bot', t.welcome);
   }
 
   function buildPanel() {
     panel = document.createElement('section');
     panel.id = 'helpPanel';
     panel.className = 'help-panel hidden';
-    panel.setAttribute('aria-label', text().title);
     panel.innerHTML = [
       '<div class="help-head"><span class="help-title"></span><button type="button" class="help-close"></button></div>',
       '<div class="help-log" aria-live="polite"></div>',
       '<div class="help-note"></div>',
       '<form class="help-form"><input class="help-input" type="text" maxlength="500" autocomplete="off"><button class="help-send" type="submit"></button></form>',
+      '<div class="help-admin hidden">',
+      '  <div class="help-admin-meta"></div>',
+      '  <div class="help-admin-question"></div>',
+      '  <textarea class="help-admin-reply" maxlength="1000"></textarea>',
+      '  <div class="help-admin-actions"><button type="button" class="help-send help-admin-send"></button><button type="button" class="help-admin-next"></button></div>',
+      '  <div class="help-admin-status"></div>',
+      '</div>',
     ].join('');
     document.body.appendChild(panel);
     log = panel.querySelector('.help-log');
@@ -133,6 +244,8 @@
       event.preventDefault();
       ask(input.value);
     };
+    panel.querySelector('.help-admin-send').onclick = adminReply;
+    panel.querySelector('.help-admin-next').onclick = adminNext;
   }
 
   async function ask(raw) {
@@ -144,43 +257,165 @@
     addMessage('user', question);
     history.push({ role: 'user', content: question });
     const pending = addMessage('bot', text().pending, true);
+    let answer = null;
+    let escalate = false;
     try {
-      if (!endpoint) throw new Error('no_endpoint');
-      const response = await fetch(endpoint, {
+      const response = await fetch(chatEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messages: history.slice(-8), lang: isEn() ? 'en' : 'zh' }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.ok || !data.reply) throw new Error(data.error || 'bad_reply');
-      pending.classList.remove('pending');
-      pending.textContent = data.reply;
-      history.push({ role: 'assistant', content: data.reply });
+      answer = data.reply;
+      escalate = !!data.escalate;
     } catch (error) {
-      pending.classList.remove('pending');
-      pending.textContent = fallbackAnswer(question);
-      history.push({ role: 'assistant', content: pending.textContent });
-    } finally {
-      if (history.length > 8) history.splice(0, history.length - 8);
-      busy = false;
-      send.disabled = false;
-      log.scrollTop = log.scrollHeight;
-      input.focus();
+      const local = fallbackAnswer(question);
+      answer = local.text;
+      escalate = local.escalate;
     }
+    pending.classList.remove('pending');
+    pending.textContent = answer;
+    history.push({ role: 'assistant', content: answer });
+    if (escalate) {
+      const sent = await submitFeedback(question, history);
+      addMessage('bot', sent ? text().escalated : text().escalateFail);
+    }
+    if (history.length > 8) history.splice(0, history.length - 8);
+    busy = false;
+    send.disabled = false;
+    log.scrollTop = log.scrollHeight;
+    input.focus();
+  }
+
+  function showChat() {
+    adminMode = false;
+    panel.querySelector('.help-log').classList.remove('hidden');
+    panel.querySelector('.help-note').classList.remove('hidden');
+    panel.querySelector('.help-form').classList.remove('hidden');
+    panel.querySelector('.help-admin').classList.add('hidden');
+    if (!log.children.length) addMessage('bot', text().welcome);
+    syncText();
+    fetchReplies();
+  }
+
+  function showAdmin() {
+    adminMode = true;
+    panel.querySelector('.help-log').classList.add('hidden');
+    panel.querySelector('.help-note').classList.add('hidden');
+    panel.querySelector('.help-form').classList.add('hidden');
+    panel.querySelector('.help-admin').classList.remove('hidden');
+    syncText();
+    loadAdmin();
+  }
+
+  async function loadAdmin() {
+    const status = panel.querySelector('.help-admin-status');
+    const meta = panel.querySelector('.help-admin-meta');
+    const question = panel.querySelector('.help-admin-question');
+    const reply = panel.querySelector('.help-admin-reply');
+    status.textContent = '…';
+    meta.textContent = '';
+    question.textContent = '';
+    reply.value = '';
+    try {
+      const response = await fetch(feedbackEndpoint + '?admin=1', { credentials: 'same-origin' });
+      const data = await response.json().catch(() => ({}));
+      if (response.status === 403) { status.textContent = text().adminForbidden; return; }
+      if (!response.ok || !data.ok) { status.textContent = text().adminUnavailable; return; }
+      adminList = Array.isArray(data.items) ? data.items : [];
+      adminIndex = 0;
+      if (!adminList.length) { status.textContent = text().adminEmpty; return; }
+      renderAdmin();
+    } catch (e) {
+      status.textContent = text().adminUnavailable;
+    }
+  }
+
+  function renderAdmin() {
+    const t = text();
+    const item = adminList[adminIndex];
+    const status = panel.querySelector('.help-admin-status');
+    const meta = panel.querySelector('.help-admin-meta');
+    const question = panel.querySelector('.help-admin-question');
+    const reply = panel.querySelector('.help-admin-reply');
+    if (!item) {
+      meta.textContent = '';
+      question.textContent = '';
+      reply.value = '';
+      status.textContent = t.adminEmpty;
+      return;
+    }
+    meta.textContent = item.username + ' · ' + (item.createdAt || '') + ' · ' + t.adminCount
+      .replace('{n}', String(adminIndex + 1)).replace('{total}', String(adminList.length));
+    const lines = [item.question || ''];
+    if (Array.isArray(item.transcript) && item.transcript.length) {
+      lines.push('', (isEn() ? 'Conversation:' : '对话记录：'));
+      item.transcript.forEach((m) => {
+        lines.push((m.role === 'user' ? (isEn() ? 'User: ' : '用户：') : (isEn() ? 'Assistant: ' : '客服：')) + (m.content || ''));
+      });
+    }
+    question.textContent = lines.join('\n');
+    reply.value = '';
+    status.textContent = '';
+    reply.focus();
+  }
+
+  async function adminReply() {
+    const item = adminList[adminIndex];
+    const reply = panel.querySelector('.help-admin-reply');
+    const status = panel.querySelector('.help-admin-status');
+    if (!item) return;
+    const value = reply.value.trim();
+    if (!value) { status.textContent = text().adminNeedText; return; }
+    try {
+      const response = await fetch(feedbackEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reply', id: item.id, text: value }),
+        credentials: 'same-origin',
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.ok) {
+        status.textContent = response.status === 403 ? text().adminForbidden : text().adminUnavailable;
+        return;
+      }
+      adminList.splice(adminIndex, 1);
+      if (adminIndex >= adminList.length) adminIndex = 0;
+      renderAdmin();
+      status.textContent = adminList.length ? text().adminSent : text().adminEmpty;
+    } catch (e) {
+      status.textContent = text().adminUnavailable;
+    }
+  }
+
+  function adminNext() {
+    if (!adminList.length) return;
+    adminIndex = (adminIndex + 1) % adminList.length;
+    renderAdmin();
   }
 
   function open() {
     if (!panel) buildPanel();
-    syncText();
     panel.classList.remove('hidden');
     [btnApp, btnAuth].forEach((b) => { if (b) b.setAttribute('aria-expanded', 'true'); });
+    showChat();
     setTimeout(() => input && input.focus(), 30);
+    if (replyTimer) clearInterval(replyTimer);
+    replyTimer = setInterval(fetchReplies, 20000);
+  }
+
+  function openAdmin() {
+    if (!panel) buildPanel();
+    panel.classList.remove('hidden');
+    showAdmin();
   }
 
   function close() {
     if (!panel) return;
     panel.classList.add('hidden');
     [btnApp, btnAuth].forEach((b) => { if (b) b.setAttribute('aria-expanded', 'false'); });
+    if (replyTimer) { clearInterval(replyTimer); replyTimer = null; }
   }
 
   function toggle() {
@@ -193,6 +428,7 @@
     b.setAttribute('aria-expanded', 'false');
     b.addEventListener('click', toggle);
   });
+  if (btnAdmin) btnAdmin.addEventListener('click', openAdmin);
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') close();
   });
